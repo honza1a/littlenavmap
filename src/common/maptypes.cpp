@@ -17,21 +17,22 @@
 
 #include "common/maptypes.h"
 
-#include "atools.h"
-#include "geo/calculations.h"
-#include "common/unit.h"
 #include "app/navapp.h"
+#include "atools.h"
+#include "common/formatter.h"
+#include "common/mapcolors.h"
 #include "common/proctypes.h"
 #include "common/symbolpainter.h"
-#include "common/formatter.h"
-#include "fs/util/fsutil.h"
-#include "userdata/userdataicons.h"
+#include "common/unit.h"
 #include "common/vehicleicons.h"
-#include "common/mapcolors.h"
+#include "fs/util/fsutil.h"
+#include "geo/calculations.h"
 #include "mapgui/maplayer.h"
+#include "userdata/userdataicons.h"
 
 #include <QDataStream>
 #include <QIcon>
+#include <QRegularExpression>
 #include <QRegularExpression>
 #include <QStringBuilder>
 
@@ -47,28 +48,19 @@ static QHash<QString, QString> parkingMapRamp;
 
 /* Full name for all parking including type */
 static QHash<QString, QString> parkingTypeMap;
-
 static QHash<QString, QString> parkingNameMap;
-
 static QHash<QString, QString> parkingDatabaseNameMap;
-
+static QVector<std::pair<QRegularExpression, QString> > parkingDatabaseKeywords;
 static QHash<QString, QString> navTypeNamesVor;
-
 static QHash<QString, QString> navTypeNamesVorLong;
-
 static QHash<QString, QString> navTypeNamesNdb;
-
 static QHash<QString, QString> navTypeNamesWaypoint;
-
 static QHash<QString, QString> navTypeNames;
-
 static QHash<QString, QString> comTypeNames;
-
 static QHash<map::MapAirspaceTypes, QString> airspaceTypeNameMap;
-
+static QHash<map::MapAirspaceTypes, QString> airspaceTypeShortNameMap;
 static QHash<map::MapAirspaceFlags, QString> airspaceFlagNameMap;
 static QHash<map::MapAirspaceFlags, QString> airspaceFlagNameMapLong;
-
 static QHash<map::MapAirspaceTypes, QString> airspaceRemarkMap;
 
 void initTranslateableTexts()
@@ -264,6 +256,68 @@ void initTranslateableTexts()
       {"GATE_Z", QObject::tr("GZ")},
     });
 
+  /* *INDENT-OFF* */
+  // Order is important
+  parkingDatabaseKeywords = QVector<std::pair<QRegularExpression, QString> >({
+      {QRegularExpression("\\b" % QObject::tr("Apron", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "A"},
+      {QRegularExpression("\\b" % QObject::tr("Cargo", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Combat", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Commuter") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Club") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Concrete") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Center") % "\\b", QRegularExpression::CaseInsensitiveOption), "C"},
+      {QRegularExpression("\\b" % QObject::tr("Domestic") % "\\b", QRegularExpression::CaseInsensitiveOption), "D"},
+      {QRegularExpression("\\b" % QObject::tr("Docking") % "\\b", QRegularExpression::CaseInsensitiveOption), "D"},
+      {QRegularExpression("\\b" % QObject::tr("Dock", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "D"},
+      {QRegularExpression("\\b" % QObject::tr("Eastern") % "\\b", QRegularExpression::CaseInsensitiveOption), "E"},
+      {QRegularExpression("\\b" % QObject::tr("East", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "E"},
+      {QRegularExpression("\\b" % QObject::tr("Extra", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "E"},
+      {QRegularExpression("\\b" % QObject::tr("Executive") % "\\b", QRegularExpression::CaseInsensitiveOption), "E"},
+      {QRegularExpression("\\b" % QObject::tr("Fuel-Start") % "\\b", QRegularExpression::CaseInsensitiveOption), "F"},
+      {QRegularExpression("\\b" % QObject::tr("Fueling Station") % "\\b", QRegularExpression::CaseInsensitiveOption), "F"},
+      {QRegularExpression("\\b" % QObject::tr("Fuel", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "F"},
+      {QRegularExpression("\\b" % QObject::tr("Gate", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "G"},
+      {QRegularExpression("\\b" % QObject::tr("General Aviation") % "\\b", QRegularExpression::CaseInsensitiveOption), "GA"},
+      {QRegularExpression("\\b" % QObject::tr("Hangars") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Hangar") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Hangers") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Hanger") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Heavy", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Hold Short") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Hold") % "\\b", QRegularExpression::CaseInsensitiveOption), "H"},
+      {QRegularExpression("\\b" % QObject::tr("Maintenance") % "\\b", QRegularExpression::CaseInsensitiveOption), "M"},
+      {QRegularExpression("\\b" % QObject::tr("Medium", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "M"},
+      {QRegularExpression("\\b" % QObject::tr("Military", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "M"},
+      {QRegularExpression("\\b" % QObject::tr("Mil", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "M"},
+      {QRegularExpression("\\b" % QObject::tr("New") % "\\b", QRegularExpression::CaseInsensitiveOption), ""},
+      {QRegularExpression("\\b" % QObject::tr("Northern") % "\\b", QRegularExpression::CaseInsensitiveOption), "N"},
+      {QRegularExpression("\\b" % QObject::tr("North", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "N"},
+      {QRegularExpression("\\b" % QObject::tr("Parking", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "P"},
+      {QRegularExpression("\\b" % QObject::tr("Park") % "\\b", QRegularExpression::CaseInsensitiveOption), "P"},
+      {QRegularExpression("\\b" % QObject::tr("Position") % "\\b", QRegularExpression::CaseInsensitiveOption), "P"},
+      {QRegularExpression("\\b" % QObject::tr("Pos") % "\\b", QRegularExpression::CaseInsensitiveOption), "P"},
+      {QRegularExpression("\\b" % QObject::tr("Private") % "\\b", QRegularExpression::CaseInsensitiveOption), "P"},
+      {QRegularExpression("\\b" % QObject::tr("Ramp", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "R"},
+      {QRegularExpression("\\b" % QObject::tr("Run up area") % "\\b", QRegularExpression::CaseInsensitiveOption), "R"},
+      {QRegularExpression("\\b" % QObject::tr("Run up") % "\\b", QRegularExpression::CaseInsensitiveOption), "R"},
+      {QRegularExpression("\\b" % QObject::tr("Sky Dive") % "\\b", QRegularExpression::CaseInsensitiveOption), "SD"},
+      {QRegularExpression("\\b" % QObject::tr("Small") % "\\b", QRegularExpression::CaseInsensitiveOption), "S"},
+      {QRegularExpression("\\b" % QObject::tr("Southern") % "\\b", QRegularExpression::CaseInsensitiveOption), "S"},
+      {QRegularExpression("\\b" % QObject::tr("South", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "S"},
+      {QRegularExpression("\\b" % QObject::tr("Stand") % "\\b", QRegularExpression::CaseInsensitiveOption), "S"},
+      {QRegularExpression("\\b" % QObject::tr("Start") % "\\b", QRegularExpression::CaseInsensitiveOption), "S"},
+      {QRegularExpression("\\b" % QObject::tr("Takeoff") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Terminal") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Tie down") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Tie-down") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Tiedowns") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Tiedown") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Transient") % "\\b", QRegularExpression::CaseInsensitiveOption), "T"},
+      {QRegularExpression("\\b" % QObject::tr("Western") % "\\b", QRegularExpression::CaseInsensitiveOption), "W"},
+      {QRegularExpression("\\b" % QObject::tr("West", "Has to match other parking keyword translations") % "\\b", QRegularExpression::CaseInsensitiveOption), "W"}
+    });
+  /* *INDENT-ON* */
+
   navTypeNamesVor = QHash<QString, QString>(
     {
       {"INVALID", QObject::tr("Invalid")},
@@ -427,6 +481,43 @@ void initTranslateableTexts()
       {map::MCTR, QObject::tr("Military Control Zone")},
       {map::TRSA, QObject::tr("Terminal Radar Service Area")},
       {map::TRAINING, QObject::tr("Training")},
+      {map::GLIDERPROHIBITED, QObject::tr("Glider Prohibited")},
+      {map::WAVEWINDOW, QObject::tr("Wave Window")},
+      {map::ONLINE_OBSERVER, QObject::tr("Online Observer")}
+    });
+
+  airspaceTypeShortNameMap = QHash<map::MapAirspaceTypes, QString>(
+    {
+      {map::AIRSPACE_NONE, QObject::tr("No Airspace")},
+      {map::CENTER, QObject::tr("CTR")},
+      {map::CLASS_A, QObject::tr("A")},
+      {map::CLASS_B, QObject::tr("B")},
+      {map::CLASS_C, QObject::tr("C")},
+      {map::CLASS_D, QObject::tr("D")},
+      {map::CLASS_E, QObject::tr("E")},
+      {map::CLASS_F, QObject::tr("F")},
+      {map::CLASS_G, QObject::tr("G")},
+      {map::FIR, QObject::tr("FIR")},
+      {map::UIR, QObject::tr("UIR")},
+      {map::TOWER, QObject::tr("TWR")},
+      {map::CLEARANCE, QObject::tr("CLR")},
+      {map::GROUND, QObject::tr("GND")},
+      {map::DEPARTURE, QObject::tr("DEP")},
+      {map::APPROACH, QObject::tr("APP")},
+      {map::MOA, QObject::tr("MOA")},
+      {map::RESTRICTED, QObject::tr("R")},
+      {map::PROHIBITED, QObject::tr("P")},
+      {map::WARNING, QObject::tr("W")},
+      {map::CAUTION, QObject::tr("CN")},
+      {map::ALERT, QObject::tr("A")},
+      {map::DANGER, QObject::tr("D")},
+      {map::NATIONAL_PARK, QObject::tr("National Park")},
+      {map::MODEC, QObject::tr("Mode-C")},
+      {map::RADAR, QObject::tr("Radar")},
+      {map::GCA, QObject::tr("GCA")},
+      {map::MCTR, QObject::tr("MCZ")},
+      {map::TRSA, QObject::tr("TRSA")},
+      {map::TRAINING, QObject::tr("T")},
       {map::GLIDERPROHIBITED, QObject::tr("Glider Prohibited")},
       {map::WAVEWINDOW, QObject::tr("Wave Window")},
       {map::ONLINE_OBSERVER, QObject::tr("Online Observer")}
@@ -824,6 +915,12 @@ int surfaceQuality(const QString& surface)
   return surfaceQualityMap.value(surface, 0);
 }
 
+const QVector<std::pair<QRegularExpression, QString> >& parkingKeywords()
+{
+  Q_ASSERT(!parkingDatabaseKeywords.isEmpty());
+  return parkingDatabaseKeywords;
+}
+
 const QString& parkingGateName(const QString& gate)
 {
   Q_ASSERT(!parkingMapGate.isEmpty());
@@ -1152,7 +1249,7 @@ bool MapAirport::isVisible(map::MapTypes types, int minRunwayFt, const MapLayer 
 }
 
 /* Convert nav_search type */
-map::MapTypes navTypeToMapObjectType(const QString& navType)
+map::MapTypes navTypeToMapType(const QString& navType)
 {
   map::MapTypes type = NONE;
   if(navType.startsWith("V") || navType == "D" || navType.startsWith("TC"))
@@ -1368,7 +1465,8 @@ QDataStream& operator<<(QDataStream& dataStream, const map::DistanceMarker& obj)
 QDataStream& operator>>(QDataStream& dataStream, PatternMarker& obj)
 {
   dataStream >> obj.airportIcao >> obj.runwayName >> obj.color >> obj.turnRight >> obj.base45Degree >> obj.showEntryExit
-  >> obj.runwayLength >> obj.downwindDistance >> obj.baseDistance >> obj.courseTrue >> obj.magvar >> obj.position;
+  >> obj.runwayLength >> obj.downwindParallelDistance >> obj.finalDistance >> obj.departureDistance
+  >> obj.courseTrue >> obj.magvar >> obj.position;
   obj.objType = map::MARK_PATTERNS;
   return dataStream;
 }
@@ -1376,7 +1474,8 @@ QDataStream& operator>>(QDataStream& dataStream, PatternMarker& obj)
 QDataStream& operator<<(QDataStream& dataStream, const PatternMarker& obj)
 {
   dataStream << obj.airportIcao << obj.runwayName << obj.color << obj.turnRight << obj.base45Degree << obj.showEntryExit
-             << obj.runwayLength << obj.downwindDistance << obj.baseDistance << obj.courseTrue << obj.magvar << obj.position;
+             << obj.runwayLength << obj.downwindParallelDistance << obj.finalDistance << obj.departureDistance
+             << obj.courseTrue << obj.magvar << obj.position;
 
   return dataStream;
 }
@@ -1423,18 +1522,6 @@ QDataStream& operator<<(QDataStream& dataStream, const map::MsaMarker& obj)
   dataStream << obj.msa.radius << obj.msa.magvar;
   dataStream << obj.msa.bearings << obj.msa.altitudes << obj.msa.trueBearing
              << obj.msa.geometry << obj.msa.labelPositions << obj.msa.bearingEndPositions << obj.msa.bounding << obj.msa.position;
-  return dataStream;
-}
-
-QDataStream& operator>>(QDataStream& dataStream, MapObjectRef& obj)
-{
-  dataStream >> obj.id >> obj.objType;
-  return dataStream;
-}
-
-QDataStream& operator<<(QDataStream& dataStream, const MapObjectRef& obj)
-{
-  dataStream << obj.id << obj.objType;
   return dataStream;
 }
 
@@ -1696,7 +1783,7 @@ QString comTypeName(const QString& type)
   return comTypeNames.value(type);
 }
 
-QString magvarText(float magvar, bool shortText)
+QString magvarText(float magvar, bool shortText, bool degSign)
 {
   QString num = QLocale().toString(std::abs(magvar), 'f', 1);
 
@@ -1709,13 +1796,15 @@ QString magvarText(float magvar, bool shortText)
     if(num.endsWith(pt % "0"))
       num.chop(2);
 
+    const QString txt = degSign ? QObject::tr("%1°%2") : QObject::tr("%1%2");
+
     if(magvar < -0.04f)
-      return QObject::tr("%1°%2").arg(num).arg(shortText ? QObject::tr("W") : QObject::tr(" West"));
+      return txt.arg(num).arg(shortText ? QObject::tr("W") : QObject::tr(" West"));
     else if(magvar > 0.04f)
       // positive" (or "easterly") variation
-      return QObject::tr("%1°%2").arg(num).arg(shortText ? QObject::tr("E") : QObject::tr(" East"));
+      return txt.arg(num).arg(shortText ? QObject::tr("E") : QObject::tr(" East"));
     else
-      return QObject::tr("0°");
+      return degSign ? QObject::tr("0°") : QObject::tr("0");
   }
   return QString();
 }
@@ -1796,23 +1885,25 @@ QString ndbFullShortText(const MapNdb& ndb)
 
 const QString& airspaceTypeToString(map::MapAirspaceTypes type)
 {
-  Q_ASSERT(!airspaceTypeNameMap.isEmpty());
   return airspaceTypeNameMap[type];
+}
+
+const QString& airspaceTypeShortToString(map::MapAirspaceTypes type)
+{
+  return airspaceTypeShortNameMap[type];
 }
 
 const QString& airspaceFlagToString(map::MapAirspaceFlags type)
 {
-  Q_ASSERT(!airspaceFlagNameMap.isEmpty());
   return airspaceFlagNameMap[type];
 }
 
 const QString& airspaceFlagToStringLong(map::MapAirspaceFlags type)
 {
-  Q_ASSERT(!airspaceFlagNameMapLong.isEmpty());
   return airspaceFlagNameMapLong[type];
 }
 
-QString mapObjectTypeToString(MapTypes type)
+QString mapTypeToString(MapTypes type)
 {
   if(type == NONE)
     return QObject::tr("None");
@@ -1963,28 +2054,28 @@ QDebug operator<<(QDebug out, const MapBase& obj)
   QDebugStateSaver saver(out);
   out.noquote().nospace() << "MapBase["
                           << "id " << obj.id
-                          << ", type " << mapObjectTypeToString(obj.objType)
+                          << ", type " << mapTypeToString(obj.objType)
                           << ", " << obj.position
                           << "]";
   return out;
 }
 
-QDebug operator<<(QDebug out, const MapObjectRef& ref)
+QDebug operator<<(QDebug out, const MapRef& ref)
 {
   QDebugStateSaver saver(out);
   out.noquote().nospace() << "MapObjectRef["
                           << "id " << ref.id
-                          << ", type " << mapObjectTypeToString(ref.objType)
+                          << ", type " << mapTypeToString(ref.objType)
                           << "]";
   return out;
 }
 
-QDebug operator<<(QDebug out, const MapObjectRefExt& ref)
+QDebug operator<<(QDebug out, const MapRefExt& ref)
 {
   QDebugStateSaver saver(out);
   out.noquote().nospace() << "MapObjectRefExt["
                           << "id " << ref.id
-                          << ", type " << mapObjectTypeToString(ref.objType);
+                          << ", type " << mapTypeToString(ref.objType);
 
   if(!ref.name.isEmpty())
     out.noquote().nospace() << ", name " << ref.name;
@@ -2201,6 +2292,81 @@ atools::geo::LineString MapIls::boundary() const
 QString airspaceName(const MapAirspace& airspace)
 {
   return airspace.isOnline() ? airspace.name : formatter::capNavString(airspace.name);
+}
+
+QString airspaceRestrictiveNameMap(const MapAirspace& airspace)
+{
+  QString restrictedName;
+  if(!airspace.restrictiveDesignation.isEmpty())
+  {
+    QString name = formatter::capNavString(airspace.restrictiveDesignation).trimmed();
+
+    if(name.endsWith('*'))
+      name = name.remove('*').trimmed();
+
+    restrictedName = airspace.restrictiveType % QObject::tr("-") % name;
+  }
+  return restrictedName;
+}
+
+QStringList airspaceNameMap(const MapAirspace& airspace, int maxTextLength, bool name, bool restrictiveName, bool type, bool altitude,
+                            bool com)
+{
+  QStringList texts;
+
+  QString restrNameStr = airspaceRestrictiveNameMap(airspace);
+  if(type)
+  {
+    // Type only if it not a part of the restrictive name
+    const QString& typeStr = airspaceTypeShortToString(airspace.type);
+    if(!((name && airspace.name.startsWith(typeStr % '-')) || (restrictiveName && restrNameStr.startsWith(typeStr % '-'))))
+      texts.append(typeStr);
+  }
+
+  // Name if requested but always for FIR and UIR spaces
+  if(name || airspace.type == map::FIR || airspace.type == map::UIR)
+    texts.append(atools::elideTextShort(airspace.isOnline() ? airspace.name : formatter::capNavString(airspace.name), maxTextLength));
+
+  if(restrictiveName)
+    texts.append(restrNameStr);
+
+  if(altitude && !airspace.isOnline())
+  {
+    QString altTextLower, altTextUpper;
+
+    if(!airspace.maxAltitudeType.isEmpty() && airspace.maxAltitudeType != "UL" && airspace.maxAltitude < 60000)
+      altTextUpper = Unit::altFeet(airspace.maxAltitude, false /* addUnit */, true /* narrow */) %
+                     QObject::tr(" ") % airspace.maxAltitudeType;
+
+    if(!airspace.minAltitudeType.isEmpty() && airspace.minAltitude > 0)
+      altTextLower = Unit::altFeet(airspace.minAltitude, false /* addUnit */, true /* narrow */);
+
+    if(airspace.maxAltitudeType != airspace.minAltitudeType && !altTextLower.isEmpty() && !altTextUpper.isEmpty())
+      altTextLower = QObject::tr(" ") % airspace.minAltitudeType;
+
+    if(!airspace.minAltitudeType.isEmpty() && airspace.minAltitude == 0 && !altTextUpper.isEmpty())
+      altTextLower = QObject::tr("0");
+
+    if(!altTextLower.isEmpty() || !altTextUpper.isEmpty())
+      texts.append(altTextLower % QObject::tr("-") % altTextUpper);
+  }
+
+  if(com)
+  {
+    QStringList freqTxt;
+    for(int freq : airspace.comFrequencies)
+    {
+      if(airspace.isOnline())
+        // Use online freqencies as is - convert kHz to MHz
+        freqTxt.append(QString::number(freq / 1000.f, 'f', 3));
+      else
+        freqTxt.append(QString::number(atools::fs::util::roundComFrequency(freq), 'f', 3));
+    }
+    texts.append(atools::strJoin(freqTxt, QObject::tr(" / ")));
+  }
+
+  texts.removeDuplicates();
+  return texts;
 }
 
 QString airspaceText(const MapAirspace& airspace)
@@ -2455,7 +2621,12 @@ QIcon mapBaseIcon(const map::MapBase *base, int size)
         return SymbolPainter::createUserpointIcon(size);
 
       case map::AIRSPACE:
-        return SymbolPainter::createAirspaceIcon(*base->asPtr<map::MapAirspace>(), size);
+        {
+          const OptionData& optionData = OptionData::instance();
+          return SymbolPainter::createAirspaceIcon(*base->asPtr<map::MapAirspace>(), size,
+                                                   optionData.getDisplayThicknessAirspace(),
+                                                   optionData.getDisplayTransparencyAirspace());
+        }
 
       case map::PARKING:
         return mapcolors::iconForParkingType(base->asPtr<map::MapParking>()->type);
@@ -2606,6 +2777,11 @@ std::tuple<int, int, int> MapProcedurePoint::compoundId() const
   return std::make_tuple(legs->ref.airportId, legs->ref.procedureId, getLeg().isAnyTransition() ? legs->ref.transitionId : -1);
 }
 
+std::tuple<int, int> MapProcedurePoint::compoundIdBase() const
+{
+  return std::make_tuple(legs->ref.airportId, legs->ref.procedureId);
+}
+
 const proc::MapProcedureLeg& MapProcedurePoint::getLeg() const
 {
   return legs->at(legIndex);
@@ -2613,7 +2789,7 @@ const proc::MapProcedureLeg& MapProcedurePoint::getLeg() const
 
 const QString& MapProcedurePoint::getIdent() const
 {
-  return legs->approachFixIdent;
+  return legs->procedureFixIdent;
 }
 
 QString procedurePointText(const MapProcedurePoint& procPoint)
@@ -2647,6 +2823,22 @@ const QIcon& ilsIcon(const MapIls& ils)
 float DistanceMarker::getDistanceNm() const
 {
   return atools::geo::meterToNm(getDistanceMeter());
+}
+
+QString airspaceRestrictiveName(const MapAirspace& airspace)
+{
+  if(!airspace.restrictiveDesignation.isEmpty())
+  {
+    QString name = formatter::capNavString(airspace.restrictiveDesignation).trimmed();
+
+    if(name.endsWith('*'))
+      name = name.remove('*').trimmed();
+
+    QString restrictedName = airspace.restrictiveType % QObject::tr("-") % name;
+    if(restrictedName != airspace.name)
+      return restrictedName;
+  }
+  return QString();
 }
 
 } // namespace types

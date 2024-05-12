@@ -101,8 +101,8 @@ enum Flag
   /* checkBoxOptionsGuiOverrideLocale */
   GUI_OVERRIDE_LOCALE = 1 << 21,
 
-  /* checkBoxOptionsRouteExportUserWpt */
-  // ROUTE_GARMIN_USER_WPT = 1 << 22,
+  /* checkBoxOptionsDisplayTrailGradient */
+  MAP_TRAIL_GRADIENT = 1 << 22,
 
   /* checkBoxOptionsRouteDeclination */
   // DELETED from 2.8.1.beta AND FREE
@@ -129,6 +129,9 @@ enum Flag
 
   /* checkBoxOptionsGuiTooltipsMenu */
   ENABLE_TOOLTIPS_MENU = 1 << 29,
+
+  /* ui->checkBoxOptionsMapAirspaceNoMultZ */
+  MAP_AIRSPACE_NO_MULT_Z = 1 << 30
 };
 
 Q_DECLARE_FLAGS(Flags, Flag);
@@ -228,9 +231,17 @@ enum UnitFuelAndWeight
 /* comboBoxOptionsDisplayTrailType */
 enum DisplayTrailType
 {
-  DASHED,
-  DOTTED,
-  SOLID
+  TRAIL_TYPE_DASHED,
+  TRAIL_TYPE_DOTTED,
+  TRAIL_TYPE_SOLID
+};
+
+/* comboBoxOptionsDisplayTrailGradient */
+enum DisplayTrailGradientType
+{
+  TRAIL_GRADIENT_COLOR_YELLOW_BLUE,
+  TRAIL_GRADIENT_COLOR_RAINBOW,
+  TRAIL_GRADIENT_BLACKWHITE
 };
 
 /* comboBoxOptionsStartupUpdateRate - how often to check for updates */
@@ -521,6 +532,20 @@ enum DisplayOptionNavAid
 Q_DECLARE_FLAGS(DisplayOptionsNavAid, DisplayOptionNavAid);
 Q_DECLARE_OPERATORS_FOR_FLAGS(optsd::DisplayOptionsNavAid);
 
+/* Airspace labels */
+enum DisplayOptionAirspace
+{
+  AIRSPACE_NONE = 0,
+  AIRSPACE_NAME = 1 << 1, /* Airspace name */
+  AIRSPACE_RESTRICTIVE_NAME = 1 << 2, /* Restrictive name */
+  AIRSPACE_TYPE = 1 << 3, /* Type */
+  AIRSPACE_ALTITUDE = 1 << 4, /* Altitude restriction */
+  AIRSPACE_COM = 1 << 5 /* COM frequencies */
+};
+
+Q_DECLARE_FLAGS(DisplayOptionsAirspace, DisplayOptionAirspace);
+Q_DECLARE_OPERATORS_FOR_FLAGS(optsd::DisplayOptionsAirspace);
+
 /* Measurement lines */
 enum DisplayOptionMeasurement
 {
@@ -577,7 +602,8 @@ enum DisplayTooltipOption
   TOOLTIP_AIRCRAFT_AI = 1 << 5,
   TOOLTIP_AIRCRAFT_USER = 1 << 6,
   TOOLTIP_VERBOSE = 1 << 7,
-  TOOLTIP_MARKS = 1 << 8
+  TOOLTIP_MARKS = 1 << 8,
+  TOOLTIP_AIRCRAFT_TRAIL = 1 << 9
 };
 
 Q_DECLARE_FLAGS(DisplayTooltipOptions, DisplayTooltipOption);
@@ -591,7 +617,8 @@ enum DisplayClickOption
   CLICK_AIRSPACE = 1 << 3,
   CLICK_AIRPORT_PROC = 1 << 4,
   CLICK_AIRCRAFT_AI = 1 << 5,
-  CLICK_AIRCRAFT_USER = 1 << 6
+  CLICK_AIRCRAFT_USER = 1 << 6,
+  CLICK_FLIGHTPLAN = 1 << 7
 };
 
 Q_DECLARE_FLAGS(DisplayClickOptions, DisplayClickOption);
@@ -622,25 +649,23 @@ public:
   OptionData(const OptionData& other) = delete;
   OptionData& operator=(const OptionData& other) = delete;
 
+  /* Get locale name like "en_US" or "de" for user interface language.
+   *  This uses the settings directly and does not need an OptionData instance. */
+  static QString getLanguage();
+
   /* Get option flags */
-  opts::Flags getFlags() const
+  const opts::Flags getFlags() const
   {
     return flags;
   }
 
-  opts2::Flags2 getFlags2() const
+  const opts2::Flags2 getFlags2() const
   {
     return flags2;
   }
 
-  /* Get locale name like "en_US" or "de" for user interface language */
-  const QString& getLanguage() const
-  {
-    return guiLanguage;
-  }
-
   /* Get short user interface language code name like "en" or "de" suitable for help URLs */
-  QString getLanguageShort() const
+  const QString getLanguageShort() const
   {
     return guiLanguage.section('_', 0, 0).section('-', 0, 0);
   }
@@ -896,6 +921,11 @@ public:
     return displayTrailType;
   }
 
+  opts::DisplayTrailGradientType getDisplayTrailGradientType() const
+  {
+    return displayTrailGradientType;
+  }
+
   int getDisplayTextSizeNavaid() const
   {
     return displayTextSizeNavaid;
@@ -971,6 +1001,11 @@ public:
     return displayOptionsNavAid;
   }
 
+  const optsd::DisplayOptionsAirspace& getDisplayOptionsAirspace() const
+  {
+    return displayOptionsAirspace;
+  }
+
   const optsd::DisplayOptionsRoute& getDisplayOptionsRoute() const
   {
     return displayOptionsRoute;
@@ -1036,9 +1071,9 @@ public:
     return updateChannels;
   }
 
-  int getAircraftTrackMaxPoints() const
+  int getAircraftTrailMaxPoints() const
   {
-    return aircraftTrackMaxPoints;
+    return aircraftTrailMaxPoints;
   }
 
   int getSimNoFollowAircraftScrollSeconds() const
@@ -1136,7 +1171,7 @@ public:
     return displayOnlineTower;
   }
 
-  QString getWebDocumentRoot() const
+  const QString& getWebDocumentRoot() const
   {
     return webDocumentRoot;
   }
@@ -1192,10 +1227,7 @@ public:
   }
 
   /* Get selected font for map. Falls back to GUI font and then back to system font. */
-  QFont getMapFont() const;
-
-  /* Get user interface font */
-  QFont getGuiFont() const;
+  const QFont getMapFont() const;
 
   /* User set online refresh rate in seconds for custom configurations or stock networks in seconds
    * or -1 for auto value fetched from whazzup or JSON */
@@ -1257,7 +1289,7 @@ public:
     return simUpdateBoxCenterLegZoom;
   }
 
-  QSize getGuiToolbarSize() const;
+  const QSize getGuiToolbarSize() const;
 
   const QColor& getHighlightFlightplanColor() const
   {
@@ -1279,6 +1311,21 @@ public:
     return cacheMapThemeDir;
   }
 
+  int getDisplayThicknessAirspace() const
+  {
+    return displayThicknessAirspace;
+  }
+
+  int getDisplayTransparencyAirspace() const
+  {
+    return displayTransparencyAirspace;
+  }
+
+  int getDisplayTextSizeAirspace() const
+  {
+    return displayTextSizeAirspace;
+  }
+
 private:
   friend class OptionsDialog;
 
@@ -1293,16 +1340,11 @@ private:
                       opts::GUI_CENTER_KML | opts::GUI_CENTER_ROUTE | opts::MAP_EMPTY_AIRPORTS | opts::ROUTE_ALTITUDE_RULE |
                       opts::CACHE_USE_ONLINE_ELEVATION | opts::STARTUP_LOAD_INFO | opts::STARTUP_LOAD_SEARCH | opts::STARTUP_LOAD_TRAIL |
                       opts::STARTUP_SHOW_SPLASH | opts::ONLINE_REMOVE_SHADOW | opts::ENABLE_TOOLTIPS_ALL | opts::STARTUP_LOAD_PERF |
-                      opts::GUI_AVOID_OVERWRITE_FLIGHTPLAN;
+                      opts::GUI_AVOID_OVERWRITE_FLIGHTPLAN | opts::MAP_AIRSPACE_NO_MULT_Z;
 
   // Defines the defaults used for reset
-  optsw::FlagsWeather flagsWeather =
-    optsw::WEATHER_INFO_FS |
-    optsw::WEATHER_INFO_ACTIVESKY |
-    optsw::WEATHER_INFO_NOAA |
-    optsw::WEATHER_TOOLTIP_FS |
-    optsw::WEATHER_TOOLTIP_ACTIVESKY |
-    optsw::WEATHER_TOOLTIP_NOAA;
+  optsw::FlagsWeather flagsWeather = optsw::WEATHER_INFO_FS | optsw::WEATHER_INFO_ACTIVESKY | optsw::WEATHER_INFO_NOAA |
+                                     optsw::WEATHER_TOOLTIP_FS | optsw::WEATHER_TOOLTIP_ACTIVESKY | optsw::WEATHER_TOOLTIP_NOAA;
 
   opts2::Flags2 flags2 = opts2::MAP_AIRPORT_TEXT_BACKGROUND | opts2::MAP_AIRPORT_HIGHLIGHT_ADDON |
                          opts2::MAP_ROUTE_TEXT_BACKGROUND | opts2::MAP_USER_TEXT_BACKGROUND | opts2::ROUTE_HIGHLIGHT_ACTIVE_TABLE |
@@ -1384,7 +1426,7 @@ private:
   int guiToolbarSize = 24;
 
   // ui->spinBoxOptionsGuiThemeMapDimming
-  int guiStyleMapDimming = 50;
+  int guiStyleMapDimming = 80;
 
   // ui->spinBoxOptionsMapClickRect
   int mapClickSensitivity = 10;
@@ -1509,7 +1551,7 @@ private:
   int displaySunShadingDimFactor = 40;
 
   // spinBoxSimMaxTrackPoints
-  int aircraftTrackMaxPoints = 20000;
+  int aircraftTrailMaxPoints = 20000;
 
   // spinBoxSimDoNotFollowOnScrollTime
   int simNoFollowOnScrollTime = 10;
@@ -1574,6 +1616,15 @@ private:
   // spinBoxOptionsMapNavTouchscreenArea
   int mapNavTouchArea = 10;
 
+  // spinBoxOptionsDisplayThicknessAirspace
+  int displayThicknessAirspace = 100;
+
+  // spinBoxOptionsDisplayTransparencyAirspace
+  int displayTransparencyAirspace = 80;
+
+  // spinBoxOptionsDisplayTextSizeAirspace
+  int displayTextSizeAirspace = 100;
+
   QColor flightplanColor = QColor(Qt::yellow), flightplanOutlineColor = QColor(Qt::black), flightplanProcedureColor = QColor(255, 150, 0),
          flightplanActiveColor = QColor(Qt::magenta), flightplanPassedColor = QColor(Qt::gray), trailColor = QColor(Qt::black),
          measurementColor = QColor(Qt::black);
@@ -1581,7 +1632,10 @@ private:
   QColor highlightFlightplanColor = QColor(Qt::green), highlightSearchColor = QColor(Qt::yellow), highlightProfileColor = QColor(Qt::cyan);
 
   // comboBoxOptionsDisplayTrailType
-  opts::DisplayTrailType displayTrailType = opts::DASHED;
+  opts::DisplayTrailType displayTrailType = opts::TRAIL_TYPE_DASHED;
+
+  // comboBoxOptionsDisplayTrailGradient
+  opts::DisplayTrailGradientType displayTrailGradientType = opts::TRAIL_GRADIENT_COLOR_YELLOW_BLUE;
 
   /* Default values are set by widget states - these are needed for the reset button */
   optsac::DisplayOptionsUserAircraft displayOptionsUserAircraft =
@@ -1605,13 +1659,15 @@ private:
                                                                optsd::MEASUREMENT_DIST | optsd::MEASUREMENT_LABEL;
 
   optsd::DisplayOptionsNavAid displayOptionsNavAid = optsd::NAVAIDS_NONE;
+  optsd::DisplayOptionsAirspace displayOptionsAirspace = optsd::AIRSPACE_RESTRICTIVE_NAME | optsd::AIRSPACE_TYPE |
+                                                         optsd::AIRSPACE_ALTITUDE | optsd::AIRSPACE_COM;
 
   optsd::DisplayOptionsRoute displayOptionsRoute = optsd::ROUTE_DISTANCE | optsd::ROUTE_INITIAL_FINAL_MAG_COURSE;
 
   optsd::DisplayTooltipOptions displayTooltipOptions = optsd::TOOLTIP_AIRCRAFT_USER | optsd::TOOLTIP_AIRCRAFT_AI |
                                                        optsd::TOOLTIP_AIRPORT | optsd::TOOLTIP_AIRSPACE |
                                                        optsd::TOOLTIP_NAVAID | optsd::TOOLTIP_WIND | optsd::TOOLTIP_VERBOSE |
-                                                       optsd::TOOLTIP_MARKS;
+                                                       optsd::TOOLTIP_MARKS | optsd::TOOLTIP_AIRCRAFT_TRAIL;
   optsd::DisplayClickOptions displayClickOptions = optsd::CLICK_AIRCRAFT_USER | optsd::CLICK_AIRCRAFT_AI |
                                                    optsd::CLICK_AIRPORT | optsd::CLICK_AIRSPACE | optsd::CLICK_NAVAID;
 

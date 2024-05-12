@@ -152,7 +152,8 @@ void WebController::startServer()
     if(listenerAddress == QHostAddress::Any)
     {
       // Collect hostnames and IPs from all interfaces
-      for(const QHostAddress& hostAddr : QNetworkInterface::allAddresses())
+      const QList<QHostAddress> addresses = QNetworkInterface::allAddresses();
+      for(const QHostAddress& hostAddr : addresses)
       {
         if(hostAddr.isNull())
           continue;
@@ -199,7 +200,7 @@ void WebController::startServer()
                         QString("%1://%2:%3").arg(scheme).arg(QHostAddress(QHostAddress::LocalHost).toString()).arg(port), false));
 
     // Ensure IPv4 in front
-    std::sort(hosts.begin(), hosts.end(), [ = ](const Host& host1, const Host& host2) {
+    std::sort(hosts.begin(), hosts.end(), [](const Host& host1, const Host& host2) {
       return host1.ipv6 < host2.ipv6;
     });
   }
@@ -247,7 +248,7 @@ void WebController::openPage()
 {
   if(!getUrl(false /* useIpAddress */).isEmpty())
     atools::gui::HelpHandler::openUrl(parentWidget, getUrl(false));
-  else
+  else if(verbose)
     qWarning() << Q_FUNC_INFO << "No valid URL found";
 }
 

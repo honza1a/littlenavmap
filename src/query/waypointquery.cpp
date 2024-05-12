@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -124,7 +124,7 @@ void WaypointQuery::getWaypointsRect(QVector<map::MapWaypoint>& waypoints, const
   if(!query::valid(Q_FUNC_INFO, waypointRectQuery))
     return;
 
-  for(Rect r : Rect(pos, nmToMeter(distanceNm), true /* fast */).splitAtAntiMeridian())
+  for(const Rect& r : Rect(pos, nmToMeter(distanceNm), true /* fast */).splitAtAntiMeridian())
   {
     query::bindRect(r, waypointRectQuery);
     waypointRectQuery->exec();
@@ -316,28 +316,14 @@ void WaypointQuery::deInitQueries()
 {
   clearCache();
 
-  delete waypointsByRectQuery;
-  waypointsByRectQuery = nullptr;
-  delete waypointsAirwayByRectQuery;
-  waypointsAirwayByRectQuery = nullptr;
-
-  delete waypointByIdentQuery;
-  waypointByIdentQuery = nullptr;
-
-  delete waypointNearestQuery;
-  waypointNearestQuery = nullptr;
-
-  delete waypointRectQuery;
-  waypointRectQuery = nullptr;
-
-  delete waypointByIdQuery;
-  waypointByIdQuery = nullptr;
-
-  delete waypointByNavIdQuery;
-  waypointByNavIdQuery = nullptr;
-
-  delete waypointInfoQuery;
-  waypointInfoQuery = nullptr;
+ATOOLS_DELETE(waypointsByRectQuery);
+ATOOLS_DELETE(waypointsAirwayByRectQuery);
+ATOOLS_DELETE(waypointByIdentQuery);
+ATOOLS_DELETE(waypointNearestQuery);
+ATOOLS_DELETE(waypointRectQuery);
+ATOOLS_DELETE(waypointByIdQuery);
+ATOOLS_DELETE(waypointByNavIdQuery);
+ATOOLS_DELETE(waypointInfoQuery);
 }
 
 void WaypointQuery::clearCache()

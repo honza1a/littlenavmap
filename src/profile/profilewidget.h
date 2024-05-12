@@ -77,7 +77,7 @@ public:
   void simDataChanged(const atools::fs::sc::SimConnectData& simulatorData);
 
   /* Track was shortened and needs a full update */
-  void aircraftTrackPruned();
+  void aircraftTrailPruned();
 
   void simulatorStatusChanged();
 
@@ -90,7 +90,7 @@ public:
   void updateProfileShowFeatures();
 
   /* Notification after track deletion */
-  void deleteAircraftTrack();
+  void deleteAircraftTrail();
 
   /* Stops thread and disables all udpates */
   void preDatabaseLoad();
@@ -107,6 +107,7 @@ public:
 
   void optionsChanged();
   void styleChanged();
+  void fontChanged(const QFont& font);
 
   void saveState();
   void restoreState();
@@ -119,7 +120,7 @@ public:
   void mainWindowShown();
 
   /* Pair of screen y and altitude in feet to display and label the scale */
-  QVector<std::pair<int, int> > calcScaleValues();
+  const QVector<std::pair<int, int> > calcScaleValues();
 
   float getMinSafeAltitudeFt() const
   {
@@ -140,9 +141,9 @@ public:
   /* true if converted route is valid and can be shown on map. This also includes routes without valid TOC and TOD */
   bool hasValidRouteForDisplay() const;
 
-  bool hasTrackPoints() const
+  bool hasTrailPoints() const
   {
-    return !aircraftTrackPoints.isEmpty();
+    return !aircraftTrailPoints.isEmpty();
   }
 
   /* Call by this and profile label widget class. Point in screen coordinates. */
@@ -222,7 +223,7 @@ private:
   void terminateThread();
   float calcGroundBufferFt(float maxElevationFt);
 
-  void updateLabel();
+  void updateHeaderLabel();
 
   /* Calculate map position on flight plan for x screen/widget position on profile.
    * Additionally gives index into route, distances from/to and altitude at x. maxElev is minimum elevation for leg.
@@ -260,12 +261,12 @@ private:
   void updateErrorLabel();
 
   /* Load and save track separately */
-  void saveAircraftTrack();
-  void loadAircraftTrack();
+  void saveAircraftTrail();
+  void loadAircraftTrail();
 
   void updateTooltip();
 
-  void buildTooltip(int x, bool force);
+  void buildTooltipText(int x, bool force);
 
   /* Get either indicated or real */
   float aircraftAlt(const atools::fs::sc::SimConnectUserAircraft& aircraft);
@@ -286,7 +287,7 @@ private:
   atools::fs::sc::SimConnectData simData, lastSimData;
 
   /* Track x = distance from start in NM and y = altitude in feet */
-  QPolygonF aircraftTrackPoints;
+  QPolygonF aircraftTrailPoints;
 
   float aircraftDistanceFromStart; /* NM */
   float lastAircraftDistanceFromStart;
@@ -317,9 +318,7 @@ private:
   atools::geo::Pos lastTooltipPos;
   QPoint lastTooltipScreenPos;
 
-  QString fixedLabelText;
-
-  bool widgetVisible = false, showAircraft = false, showAircraftTrack = false;
+  bool widgetVisible = false, showAircraft = false, showAircraftTrail = false;
   QVector<int> waypointX; /* Flight plan waypoint screen coordinates - does contain the dummy
                            * from airport to runway but not missed legs */
   QPolygon landPolygon; /* Green landmass polygon */

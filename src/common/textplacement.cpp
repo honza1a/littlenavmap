@@ -86,12 +86,11 @@ void TextPlacement::calculateTextAlongLines(const QVector<atools::geo::Line>& li
         // Build temporary elided text to get the right length - use any arrow
         QString text = elideText(lineTexts.at(i), arrowLeft, metrics, lineLength);
 
-        int xt, yt;
-        float brg;
+        float xt, yt, brg;
         if(findTextPos(lines.at(i), lines.at(i).lengthMeter(), horizontalAdvance(text, metrics),
                        static_cast<float>(metrics.height()), maximumPoints, xt, yt, &brg))
         {
-          textCoords.append(QPoint(xt, yt));
+          textCoords.append(QPointF(xt, yt));
           textBearings.append(brg);
           texts.append(text);
           textLineLengths.append(lineLength);
@@ -131,7 +130,8 @@ void TextPlacement::calculateTextAlongLine(const atools::geo::Line& line, const 
 float TextPlacement::horizontalAdvance(const QString& text, const QFontMetricsF& metrics) const
 {
   double maxAdvance = 0.;
-  for(const QString& txt : text.split('\n'))
+  const QStringList txts = text.split('\n');
+  for(const QString& txt : txts)
     maxAdvance = std::max(maxAdvance, metrics.horizontalAdvance(txt));
   return static_cast<float>(maxAdvance);
 }
@@ -144,7 +144,8 @@ QString TextPlacement::elideText(const QString& text, const QString& arrow, cons
   return txts.join('\n');
 }
 
-void TextPlacement::drawTextAlongOneLine(QString text, float bearing, const QPointF& textCoord, float textLineLength) const
+void TextPlacement::drawTextAlongOneLine(QString text, float bearing, const QPointF& textCoord, float textLineLength, Side side,
+                                         float offset) const
 {
   if(!text.isEmpty() || arrowForEmpty)
   {
@@ -153,22 +154,20 @@ void TextPlacement::drawTextAlongOneLine(QString text, float bearing, const QPoi
     QString arrow;
     if(bearing < 180.f)
     {
-      if(!arrowRight.isEmpty())
-        arrow = arrowRight;
+      arrow = arrowRight;
       rotate = bearing - 90.f;
     }
     else
     {
       // Text is flipped upside down for readability
-      if(!arrowLeft.isEmpty())
-        arrow = arrowLeft;
+      arrow = arrowLeft;
       rotate = bearing + 90.f;
     }
 
     // Draw text
     QFontMetricsF metrics(painter->font());
 
-    // Elide each line in text
+    // Elide each line in text - considers \n and returns them too
     text = elideText(text, arrow, metrics, textLineLength);
 
     // Split separated text into lines
@@ -198,31 +197,39 @@ void TextPlacement::drawTextAlongOneLine(QString text, float bearing, const QPoi
     else
       txts[mid] = arrow % txts.at(mid);
 
-    // Calculate offset ======================================
-    double yoffset = 0.; // Negative moves up
-    if(textOnLineCenter)
-      yoffset = -metrics.height() * txts.size() / 2. + metrics.ascent();
-    else
+    // Remove all too short texts which contain only "..." but keep arrows
+    txts.erase(std::remove_if(txts.begin(), txts.end(), [&arrow](const QString& txt)->bool {
+      return txt.trimmed().size() <= 1 && txt != arrow;
+    }), txts.end());
+
+    if(!txts.isEmpty())
     {
-      if(textOnTopOfLine || bearing >= 180.)
-        // Keep all texts north - positive moves down
-        yoffset = -(lineWidth / 2. + 2. + metrics.height() * txts.size() - metrics.ascent());
+      // Calculate offset ======================================
+      // Text allowed below line
+      double yoffsetBelow = lineWidth / 2. + offset + metrics.ascent();
+      // Keep all texts north - positive moves down
+      double yoffsetAbove = -(lineWidth / 2. + offset + metrics.height() * txts.size() - metrics.ascent());
+      double yoffset = 0.; // Negative moves up
+
+      if(side == CENTER || textOnLineCenter)
+        yoffset = -metrics.height() * txts.size() / 2. + metrics.ascent();
+      else if(side != NONE)
+        yoffset = (side == LEFT && bearing >= 180.) || (side == RIGHT && bearing < 180.) ? yoffsetBelow : yoffsetAbove;
       else
-        // Text allowed below line
-        yoffset = lineWidth / 2. + 2. + metrics.ascent();
+        yoffset = textOnTopOfLine || bearing >= 180. ? yoffsetAbove : yoffsetBelow;
+
+      painter->translate(textCoord.x(), textCoord.y());
+      painter->rotate(rotate);
+
+      for(int i = 0; i < txts.size(); i++)
+      {
+        // Add space at start and end to avoid letters touching the border
+        QString txt = ' ' % txts.at(i) % ' ';
+        painter->drawText(QPointF(-horizontalAdvance(txt, metrics) / 2.f, yoffset + i * metrics.height()), txt);
+      }
+
+      painter->resetTransform();
     }
-
-    painter->translate(textCoord.x(), textCoord.y());
-    painter->rotate(rotate);
-
-    for(int i = 0; i < txts.size(); i++)
-    {
-      // Add space at start and end to avoid letters touching the border
-      QString txt = ' ' % txts.at(i) % ' ';
-      painter->drawText(QPointF(-horizontalAdvance(txt, metrics) / 2.f, yoffset + i * metrics.height()), txt);
-    }
-
-    painter->resetTransform();
   }
 }
 
@@ -232,7 +239,7 @@ void TextPlacement::drawTextAlongLines()
   {
     // Draw text with direction arrow along lines
     int i = 0;
-    for(const QPointF& textCoord : textCoords)
+    for(const QPointF& textCoord : qAsConst(textCoords))
     {
       if(!colors2.isEmpty() && colors2.at(i).isValid())
         painter->setPen(colors2.at(i));
@@ -244,7 +251,7 @@ void TextPlacement::drawTextAlongLines()
 }
 
 bool TextPlacement::findTextPos(const Line& line, float distanceMeter, float textWidth, float textHeight, int maxPoints,
-                                int& x, int& y, float *bearing) const
+                                float& x, float& y, float *bearing) const
 {
   float brg = 0.f;
 
@@ -293,7 +300,7 @@ int TextPlacement::findClosestInternal(const QVector<int>& fullyVisibleValid, co
 }
 
 bool TextPlacement::findTextPosInternal(const Line& line, float distanceMeter, float textWidth, float textHeight, int numPoints,
-                                        bool allowPartial, int& x, int& y, float& bearing) const
+                                        bool allowPartial, float& x, float& y, float& bearing) const
 {
 #ifdef DEBUG_TEXPLACEMENT_PAINT
   atools::util::PainterContextSaver saver(painter);
@@ -455,8 +462,8 @@ bool TextPlacement::findTextPosInternal(const Line& line, float distanceMeter, f
         bearing = static_cast<float>(atools::geo::normalizeCourse(bearingsValid.at(foundIndexValid) + 90.));
 
         const QPointF& pt = points.at(pointsIdxValid.at(foundIndexValid));
-        x = atools::roundToInt(pt.x());
-        y = atools::roundToInt(pt.y());
+        x = static_cast<float>(pt.x());
+        y = static_cast<float>(pt.y());
         return true;
       }
     } // if(!pointsIdxValid.isEmpty())

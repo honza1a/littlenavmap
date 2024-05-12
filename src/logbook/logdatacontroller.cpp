@@ -23,19 +23,22 @@
 #include "common/maptypesfactory.h"
 #include "db/undoredoprogress.h"
 #include "exception.h"
+#include "fs/gpx/gpxio.h"
 #include "fs/userdata/logdatamanager.h"
 #include "geo/calculations.h"
 #include "gui/dialog.h"
 #include "gui/errorhandler.h"
 #include "gui/helphandler.h"
 #include "gui/mainwindow.h"
+#include "gui/sqlquerydialog.h"
 #include "gui/textdialog.h"
 #include "perf/aircraftperfcontroller.h"
 #include "search/searchcontroller.h"
 #include "logbook/logdataconverter.h"
-#include "common/aircrafttrack.h"
+#include "common/aircrafttrail.h"
 #include "logbook/logdatadialog.h"
 #include "logbook/logstatisticsdialog.h"
+#include "sql/sqlcolumn.h"
 #include "zip/gzip.h"
 #include "app/navapp.h"
 #include "query/airportquery.h"
@@ -59,6 +62,7 @@
 
 using atools::sql::SqlTransaction;
 using atools::sql::SqlRecord;
+using atools::sql::SqlColumn;
 using atools::geo::Pos;
 using atools::fs::pln::FlightplanIO;
 
@@ -113,7 +117,7 @@ void LogdataController::undoTriggered()
       transaction.commit();
       manager->clearGeometryCache();
 
-      emit refreshLogSearch(false, false);
+      emit refreshLogSearch(false /* loadAll */, false /* keepSelection */, true /* force */);
       emit logDataChanged();
     }
     else
@@ -144,7 +148,7 @@ void LogdataController::redoTriggered()
       transaction.commit();
       manager->clearGeometryCache();
 
-      emit refreshLogSearch(false, false);
+      emit refreshLogSearch(false /* loadAll */, false /* keepSelection */, true /* force */);
       emit logDataChanged();
     }
     else
@@ -178,6 +182,16 @@ void LogdataController::restoreState()
 void LogdataController::optionsChanged()
 {
   statsDialog->optionsChanged();
+}
+
+void LogdataController::fontChanged(const QFont& font)
+{
+  statsDialog->fontChanged(font);
+}
+
+void LogdataController::styleChanged()
+{
+  statsDialog->styleChanged();
 }
 
 void LogdataController::deleteLogEntryFromMap(int id)
@@ -279,8 +293,8 @@ void LogdataController::createTakeoffLanding(const atools::fs::sc::SimConnectUse
       record.setValue("aircraft_registration", aircraft.getAirplaneRegistration()); // varchar(50),
       record.setValue("flightplan_number", aircraft.getAirplaneFlightnumber()); // varchar(100),
       record.setValue("flightplan_cruise_altitude", NavApp::getRouteCruiseAltitudeFt()); // integer,
-      record.setValue("flightplan_file", NavApp::getCurrentRouteFilepath()); // varchar(1024),
-      record.setValue("performance_file", NavApp::getCurrentAircraftPerfFilepath()); // varchar(1024),
+      record.setValue("flightplan_file", atools::nativeCleanPath(NavApp::getCurrentRouteFilepath())); // varchar(1024),
+      record.setValue("performance_file", atools::nativeCleanPath(NavApp::getCurrentAircraftPerfFilepath())); // varchar(1024),
       record.setValue("block_fuel", NavApp::getAltitudeLegs().getBlockFuel(NavApp::getAircraftPerformance())); // integer,
       record.setValue("trip_fuel", NavApp::getAltitudeLegs().getTripFuel()); // integer,
       record.setValue("grossweight", aircraft.getAirplaneTotalWeightLbs()); // integer,
@@ -299,10 +313,10 @@ void LogdataController::createTakeoffLanding(const atools::fs::sc::SimConnectUse
       record.setValue("departure_time_sim", aircraft.getZuluTime()); // varchar(100),
 
       record.setValue("simulator", NavApp::getCurrentSimulatorShortName()); // varchar(50),
-      record.setValue("route_string", NavApp::getRouteStringDefaultOpts()); // varchar(1024),
+      record.setValue("route_string", NavApp::getRouteStringLogbook()); // varchar(1024),
 
       // Clear separate logbook track =========================
-      NavApp::deleteAircraftTrackLogbook();
+      NavApp::deleteAircraftTrailLogbook();
 
       // Record flight plan and aircraft performance =========================
       recordFlightplanAndPerf(record);
@@ -366,16 +380,12 @@ void LogdataController::createTakeoffLanding(const atools::fs::sc::SimConnectUse
         recordFlightplanAndPerf(record);
 
         // Save GPX with simplified flight plan and trail =========================
-        record.setValue("aircraft_trail",
-                        FlightplanIO().saveGpxGz(NavApp::getRouteConst().
-                                                 updatedAltitudes().adjustedToOptions(rf::DEFAULT_OPTS_GPX).
-                                                 getFlightplanConst(),
-                                                 NavApp::getAircraftTrackLogbook().getLineStrings(),
-                                                 NavApp::getAircraftTrackLogbook().getTimestampsMs(),
-                                                 static_cast<int>(NavApp::getRouteConst().getCruiseAltitudeFt()))); // blob
+        const atools::fs::pln::Flightplan flightplan =
+          NavApp::getRouteConst().updatedAltitudes().adjustedToOptions(rf::DEFAULT_OPTS_GPX).getFlightplanConst();
+        record.setValue("aircraft_trail", atools::fs::gpx::GpxIO().saveGpxGz(NavApp::getAircraftTrailLogbook().toGpxData(flightplan)));
 
         // Clear separate logbook track =========================
-        NavApp::deleteAircraftTrackLogbook();
+        NavApp::deleteAircraftTrailLogbook();
 
         // Determine fuel type again =========================
         float weightVolRatio = 0.f;
@@ -418,7 +428,7 @@ void LogdataController::logChanged(bool loadAll, bool keepSelection)
   emit logDataChanged();
 
   // Reload search
-  emit refreshLogSearch(loadAll, keepSelection);
+  emit refreshLogSearch(loadAll, keepSelection, true /* force */);
 }
 
 void LogdataController::recordFlightplanAndPerf(atools::sql::SqlRecord& record)
@@ -485,16 +495,9 @@ void LogdataController::displayOptionsChanged()
   manager->clearGeometryCache();
 }
 
-const atools::geo::LineString *LogdataController::getRouteGeometry(int id)
+const atools::fs::gpx::GpxData *LogdataController::getGpxData(int id)
 {
-  const atools::fs::userdata::LogEntryGeometry *entry = manager->getGeometry(id);
-  return entry != nullptr ? &entry->route : nullptr;
-}
-
-const QVector<atools::geo::LineString> *LogdataController::getTrackGeometry(int id)
-{
-  const atools::fs::userdata::LogEntryGeometry *entry = manager->getGeometry(id);
-  return entry != nullptr ? &entry->tracks : nullptr;
+  return manager->getGpxData(id);
 }
 
 void LogdataController::editLogEntryFromMap(int id)
@@ -565,7 +568,7 @@ void LogdataController::prefillLogEntry(atools::sql::SqlRecord& rec)
 
   rec.setValue("aircraft_type", NavApp::getAircraftPerformance().getAircraftType());
   rec.setValue("simulator", NavApp::getCurrentSimulatorName());
-  rec.setValue("route_string", NavApp::getRouteStringDefaultOpts());
+  rec.setValue("route_string", NavApp::getRouteStringLogbook());
   rec.setValue("flightplan_cruise_altitude", NavApp::getRouteCruiseAltitudeFt());
   rec.setValue("block_fuel", NavApp::getAircraftPerfController()->getBlockFuel());
   rec.setValue("trip_fuel", NavApp::getAircraftPerfController()->getTripFuel());
@@ -605,8 +608,8 @@ void LogdataController::prefillLogEntry(atools::sql::SqlRecord& rec)
   gpxAttach(&rec, mainWindow, true /* currentTrack */);
 
   // Filenames ======================================================
-  rec.setValue("flightplan_file", NavApp::getCurrentRouteFilepath());
-  rec.setValue("performance_file", NavApp::getCurrentAircraftPerfFilepath());
+  rec.setValue("flightplan_file", atools::nativeCleanPath(NavApp::getCurrentRouteFilepath()));
+  rec.setValue("performance_file", atools::nativeCleanPath(NavApp::getCurrentAircraftPerfFilepath()));
 }
 
 void LogdataController::addLogEntry()
@@ -659,7 +662,8 @@ void LogdataController::cleanupLogEntries()
   {
     SHORT_DISTANCE,
     DEPARTURE_AND_DESTINATION_EQUAL,
-    DEPARTURE_OR_DESTINATION_EMPTY
+    DEPARTURE_OR_DESTINATION_EMPTY,
+    SHOW_PREVIEW
   };
 
   qDebug() << Q_FUNC_INFO;
@@ -667,7 +671,7 @@ void LogdataController::cleanupLogEntries()
   // Create a dialog with tree checkboxes =====================
   atools::gui::ChoiceDialog choiceDialog(mainWindow, QApplication::applicationName() + tr(" - Cleanup Logbook"),
                                          tr("Select criteria for cleanup.\nNote that you can undo this change."),
-                                         lnm::SEARCHTAB_LOGDATA_CLEAN_DIALOG, "LOGBOOK.html#logbook-cleanup");
+                                         lnm::SEARCHTAB_LOGDATA_CLEANUP_DIALOG, "LOGBOOK.html#logbook-cleanup");
 
   choiceDialog.setHelpOnlineUrl(lnm::helpOnlineUrl);
   choiceDialog.setHelpLanguageOnline(lnm::helpLanguageOnline());
@@ -696,6 +700,9 @@ void LogdataController::cleanupLogEntries()
   choiceDialog.addCheckBox(DEPARTURE_OR_DESTINATION_EMPTY, tr("&Either departure or destinaion ident empty"),
                            tr("Removes incomplete entries where the flight was terminated early, for example."));
   choiceDialog.addSpacer();
+  choiceDialog.addLine();
+  choiceDialog.addCheckBox(SHOW_PREVIEW, tr("Show a &preview before deleting logbook entries"),
+                           tr("Shows a dialog window with all logbook entries to be deleted before removing them."), true /* checked */);
 
   // Disable ok button if not at least one of these is checked
   choiceDialog.setRequiredAnyChecked({SHORT_DISTANCE, DEPARTURE_AND_DESTINATION_EQUAL, DEPARTURE_OR_DESTINATION_EMPTY});
@@ -703,18 +710,98 @@ void LogdataController::cleanupLogEntries()
 
   if(choiceDialog.exec() == QDialog::Accepted)
   {
-    // Dialog ok. Remove entries.
-    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-    SqlTransaction transaction(manager->getDatabase());
-    int removed = manager->cleanupLogEntries(choiceDialog.isChecked(DEPARTURE_AND_DESTINATION_EQUAL),
-                                             choiceDialog.isChecked(DEPARTURE_OR_DESTINATION_EMPTY),
-                                             choiceDialog.isChecked(SHORT_DISTANCE) ? distNm : -1.f);
-    transaction.commit();
-    QGuiApplication::restoreOverrideCursor();
+    bool deleteEntries = false;
 
-    if(removed > 0)
-      logChanged(false /* load all */, false /* keep selection */);
-    mainWindow->setStatusMessage(tr("%1 logbook %2 deleted.").arg(removed).arg(removed == 1 ? tr("entry") : tr("entries")));
+    // Prepare - replace null values with empty strings
+    manager->preCleanup();
+
+    // Show preview table ===============================================
+    if(choiceDialog.isChecked(SHOW_PREVIEW))
+    {
+      QVector<atools::sql::SqlColumn> previewCols({
+        SqlColumn("departure_time", tr("Departure\nReal Time")),
+        SqlColumn("aircraft_name", tr("Aircraft\nModel")),
+        SqlColumn("aircraft_type", tr("Aircraft\nType")),
+        SqlColumn("aircraft_registration", tr("Aircraft\nRegistration")),
+        SqlColumn("simulator", tr("Simulator")),
+        SqlColumn("departure_ident", tr("Departure\nIdent")),
+        SqlColumn("departure_name", tr("Departure")),
+        SqlColumn("destination_ident", tr("Destination\nIdent")),
+        SqlColumn("destination_name", tr("Destination")),
+        SqlColumn("distance_flown", Unit::replacePlaceholders(tr("Distance\nFlown %dist%"))),
+        SqlColumn("flightplan", tr("Flight Plan\nattached")),
+        SqlColumn("aircraft_perf", tr("Aircraft Performance\nattached")),
+        SqlColumn("aircraft_trail", tr("Aircraft Trail\nattached")),
+        SqlColumn("description", tr("Remarks")),
+      });
+
+      // Get query for preview
+      QString queryStr = manager->getCleanupPreview(choiceDialog.isChecked(DEPARTURE_AND_DESTINATION_EQUAL),
+                                                    choiceDialog.isChecked(DEPARTURE_OR_DESTINATION_EMPTY),
+                                                    choiceDialog.isChecked(SHORT_DISTANCE) ? distNm : -1.f, previewCols);
+
+      // Callback for data formatting
+      atools::gui::SqlQueryDialogDataFunc dataFunc([&previewCols](int column, const QVariant& data, Qt::ItemDataRole role) -> QVariant {
+                                                   const QString& colname = previewCols.at(column).getName();
+
+                                                   if(role == Qt::TextAlignmentRole)
+                                                   {
+                                                     if(colname == "departure_time" || colname == "distance_flown")
+                                                       return Qt::AlignRight;
+                                                   }
+                                                   else if(role == Qt::DisplayRole)
+                                                   {
+                                                     if(colname == "departure_time")
+                                                       return data.toDateTime();
+                                                     else if(colname == "distance_flown")
+                                                       return Unit::distNm(data.toFloat(), false /* addUnit */);
+                                                     else if(colname == "flightplan" || colname == "aircraft_perf" ||
+                                                             colname == "aircraft_trail")
+                                                       return data.toByteArray().isEmpty() ? tr("-") : tr("✓");
+                                                   }
+
+                                                   return data;
+        });
+
+      // Build preview dialog ===============================================
+      atools::gui::SqlQueryDialog previewDialog(mainWindow, QCoreApplication::applicationName() + tr(" - Cleanup Preview"),
+                                                tr("These logbook entries will be deleted.\nNote that you can undo this change."),
+                                                lnm::SEARCHTAB_USERDATA_CLEANUP_PREVIEW, "LOGBOOK.html#cleanup-logbook-entries",
+                                                tr("&Delete Logbook entries"));
+      previewDialog.setHelpOnlineUrl(lnm::helpOnlineUrl);
+      previewDialog.setHelpLanguageOnline(lnm::helpLanguageOnline());
+      previewDialog.initQuery(manager->getDatabase(), queryStr, previewCols, dataFunc);
+      if(previewDialog.exec() == QDialog::Accepted)
+        deleteEntries = true;
+    }
+    else
+      deleteEntries = true;
+
+    manager->postCleanup();
+
+    int removed = 0;
+    if(deleteEntries)
+    {
+      // Dialog ok - remove entries ===============================================
+      QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+      SqlTransaction transaction(manager->getDatabase());
+      removed = manager->cleanupLogEntries(choiceDialog.isChecked(DEPARTURE_AND_DESTINATION_EQUAL),
+                                           choiceDialog.isChecked(DEPARTURE_OR_DESTINATION_EMPTY),
+                                           choiceDialog.isChecked(SHORT_DISTANCE) ? distNm : -1.f);
+      transaction.commit();
+      QGuiApplication::restoreOverrideCursor();
+    }
+
+    // Undo prepare - replace empty strings with null values
+    manager->postCleanup();
+
+    if(deleteEntries)
+    {
+      // Send messages ===============================================
+      if(removed > 0)
+        logChanged(false /* load all */, false /* keep selection */);
+      mainWindow->setStatusMessage(tr("%1 logbook %2 deleted.").arg(removed).arg(removed == 1 ? tr("entry") : tr("entries")));
+    }
   }
 }
 
@@ -1085,14 +1172,14 @@ void LogdataController::gpxAttach(atools::sql::SqlRecord *record, QWidget *paren
 {
   try
   {
-    const AircraftTrack& track = currentTrack ? NavApp::getAircraftTrack() : NavApp::getAircraftTrackLogbook();
+    const AircraftTrail& track = currentTrack ? NavApp::getAircraftTrail() : NavApp::getAircraftTrailLogbook();
 
     if(!track.isEmpty() || !NavApp::getRouteConst().isEmpty())
-      record->setValue("aircraft_trail",
-                       FlightplanIO().saveGpxGz(NavApp::getRouteConst().
-                                                updatedAltitudes().adjustedToOptions(rf::DEFAULT_OPTS_GPX).
-                                                getFlightplanConst(), track.getLineStrings(), track.getTimestampsMs(),
-                                                static_cast<int>(NavApp::getRouteConst().getCruiseAltitudeFt()))); // blob
+    {
+      const atools::fs::pln::Flightplan flightplan =
+        NavApp::getRouteConst().updatedAltitudes().adjustedToOptions(rf::DEFAULT_OPTS_GPX).getFlightplanConst();
+      record->setValue("aircraft_trail", atools::fs::gpx::GpxIO().saveGpxGz(track.toGpxData(flightplan)));
+    }
     else
       record->setNull("aircraft_trail");
 

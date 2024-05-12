@@ -17,7 +17,7 @@
 
 #include "mapgui/mappaintwidget.h"
 
-#include "common/aircrafttrack.h"
+#include "common/aircrafttrail.h"
 #include "common/constants.h"
 #include "common/mapresult.h"
 #include "common/unit.h"
@@ -72,8 +72,8 @@ MapPaintWidget::MapPaintWidget(QWidget *parent, bool visible)
 {
   verbose = atools::settings::Settings::instance().getAndStoreValue(lnm::OPTIONS_MAPWIDGET_DEBUG, false).toBool();
 
-  aircraftTrack = new AircraftTrack;
-  aircraftTrackLogbook = new AircraftTrack;
+  aircraftTrail = new AircraftTrail;
+  aircraftTrailLogbook = new AircraftTrail;
 
   // Set the map quality to gain speed while moving
   setMapQualityForViewContext(HighQuality, Still);
@@ -120,28 +120,17 @@ MapPaintWidget::~MapPaintWidget()
 
   // Have to delete manually since classes can be copied and does not delete in destructor
   airwayTrackQuery->deleteChildren();
-  delete airwayTrackQuery;
+  ATOOLS_DELETE_LOG(airwayTrackQuery);
 
   waypointTrackQuery->deleteChildren();
-  delete waypointTrackQuery;
+  ATOOLS_DELETE_LOG(waypointTrackQuery);
 
-  qDebug() << Q_FUNC_INFO << "delete paintLayer";
-  delete paintLayer;
-
-  qDebug() << Q_FUNC_INFO << "delete screenIndex";
-  delete screenIndex;
-
-  qDebug() << Q_FUNC_INFO << "delete aircraftTrack";
-  delete aircraftTrack;
-
-  qDebug() << Q_FUNC_INFO << "delete aircraftTrackLogbook";
-  delete aircraftTrackLogbook;
-
-  qDebug() << Q_FUNC_INFO << "delete apronGeometryCache";
-  delete apronGeometryCache;
-
-  qDebug() << Q_FUNC_INFO << "delete mapQuery";
-  delete mapQuery;
+  ATOOLS_DELETE_LOG(paintLayer);
+  ATOOLS_DELETE_LOG(screenIndex);
+  ATOOLS_DELETE_LOG(aircraftTrail);
+  ATOOLS_DELETE_LOG(aircraftTrailLogbook);
+  ATOOLS_DELETE_LOG(apronGeometryCache);
+  ATOOLS_DELETE_LOG(mapQuery);
 }
 
 void MapPaintWidget::copySettings(const MapPaintWidget& other)
@@ -194,8 +183,8 @@ void MapPaintWidget::copySettings(const MapPaintWidget& other)
 
   // Copy own/internal settings
   currentThemeId = other.currentThemeId;
-  *aircraftTrack = *other.aircraftTrack;
-  *aircraftTrackLogbook = *other.aircraftTrackLogbook;
+  *aircraftTrail = *other.aircraftTrail;
+  *aircraftTrailLogbook = *other.aircraftTrailLogbook;
   searchMarkPos = other.searchMarkPos;
   homePos = other.homePos;
   homeDistance = other.homeDistance;
@@ -385,11 +374,12 @@ void MapPaintWidget::setShowMapPois(bool show)
   setShowTerrain(show);
 }
 
-void MapPaintWidget::updateGeometryIndex(map::MapTypes oldTypes, map::MapDisplayTypes oldDisplayTypes)
+void MapPaintWidget::updateGeometryIndex(map::MapTypes oldTypes, map::MapDisplayTypes oldDisplayTypes, int oldMinRunwayLength)
 {
   // Update screen coordinate caches if display options have changed
   map::MapTypes types = getShownMapTypes();
   map::MapDisplayTypes displayTypes = getShownMapDisplayTypes();
+  int minRunwayLength = getShownMinimumRunwayFt();
 
   if(((types& map::AIRWAY_ALL) != (oldTypes & map::AIRWAY_ALL)) || types.testFlag(map::TRACK) || oldTypes.testFlag(map::TRACK))
     screenIndex->updateAirwayScreenGeometry(getCurrentViewBoundingBox());
@@ -397,12 +387,15 @@ void MapPaintWidget::updateGeometryIndex(map::MapTypes oldTypes, map::MapDisplay
   if(types.testFlag(map::AIRSPACE) != oldTypes.testFlag(map::AIRSPACE))
     screenIndex->updateAirspaceScreenGeometry(getCurrentViewBoundingBox());
 
-  if((types.testFlag(map::ILS) != oldTypes.testFlag(map::ILS)) ||
+  if(minRunwayLength != oldMinRunwayLength || // Airport visibility also changes ILS
+     (types& map::AIRPORT_ALL_AND_ADDON) != (oldTypes & map::AIRPORT_ALL_AND_ADDON) || // ILS are disabled with airports
+     (types.testFlag(map::ILS) != oldTypes.testFlag(map::ILS)) ||
      (displayTypes.testFlag(map::GLS) != oldDisplayTypes.testFlag(map::GLS)) ||
      (displayTypes.testFlag(map::FLIGHTPLAN) != oldDisplayTypes.testFlag(map::FLIGHTPLAN)))
     screenIndex->updateIlsScreenGeometry(getCurrentViewBoundingBox());
 
   if(types.testFlag(map::MISSED_APPROACH) != oldTypes.testFlag(map::MISSED_APPROACH) ||
+     displayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE) != oldDisplayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE) ||
      (displayTypes.testFlag(map::FLIGHTPLAN) != oldDisplayTypes.testFlag(map::FLIGHTPLAN)))
     screenIndex->updateRouteScreenGeometry(getCurrentViewBoundingBox());
 
@@ -416,12 +409,12 @@ void MapPaintWidget::dumpMapLayers() const
   paintLayer->dumpMapLayers();
 }
 
-const QVector<map::MapObjectRef>& MapPaintWidget::getRouteDrawnNavaidsConst() const
+const QVector<map::MapRef>& MapPaintWidget::getRouteDrawnNavaidsConst() const
 {
   return screenIndex->getRouteDrawnNavaidsConst();
 }
 
-QVector<map::MapObjectRef> *MapPaintWidget::getRouteDrawnNavaids()
+QVector<map::MapRef> *MapPaintWidget::getRouteDrawnNavaids()
 {
   return screenIndex->getRouteDrawnNavaids();
 }
@@ -454,7 +447,7 @@ void MapPaintWidget::setShowMapObjectDisplay(map::MapDisplayTypes type, bool sho
   paintLayer->setShowMapObjectDisplay(type, show);
 }
 
-void MapPaintWidget::setShowMapAirspaces(map::MapAirspaceFilter types)
+void MapPaintWidget::setShowMapAirspaces(const map::MapAirspaceFilter& types)
 {
   paintLayer->setShowAirspaces(types);
   updateMapVisibleUi();
@@ -487,12 +480,17 @@ map::MapTypes MapPaintWidget::getShownMapTypes() const
   return paintLayer->getShownMapTypes();
 }
 
+int MapPaintWidget::getShownMinimumRunwayFt() const
+{
+  return paintLayer->getShownMinimumRunwayFt();
+}
+
 map::MapDisplayTypes MapPaintWidget::getShownMapDisplayTypes() const
 {
   return paintLayer->getShownMapDisplayTypes();
 }
 
-map::MapAirspaceFilter MapPaintWidget::getShownAirspaces() const
+const map::MapAirspaceFilter& MapPaintWidget::getShownAirspaces() const
 {
   return paintLayer->getShownAirspaces();
 }
@@ -967,7 +965,7 @@ bool MapPaintWidget::addKmlFile(const QString& kmlFile)
 
 void MapPaintWidget::clearKmlFiles()
 {
-  for(const QString& file : kmlFilePaths)
+  for(const QString& file : qAsConst(kmlFilePaths))
     model()->removeGeoData(file);
   kmlFilePaths.clear();
 }
@@ -1006,9 +1004,9 @@ bool MapPaintWidget::hasHighlights() const
          !screenIndex->getAirwayHighlights().isEmpty();
 }
 
-bool MapPaintWidget::hasTrackPoints() const
+int MapPaintWidget::getAircraftTrailSize() const
 {
-  return !aircraftTrack->isEmpty();
+  return aircraftTrail->size();
 }
 
 const map::MapResult& MapPaintWidget::getSearchHighlights() const
@@ -1092,8 +1090,7 @@ void MapPaintWidget::updateLogEntryScreenGeometry()
   screenIndex->updateLogEntryScreenGeometry(getCurrentViewBoundingBox());
 }
 
-void MapPaintWidget::changeSearchHighlights(const map::MapResult& newHighlights, bool updateAirspace,
-                                            bool updateLogEntries)
+void MapPaintWidget::changeSearchHighlights(const map::MapResult& newHighlights, bool updateAirspace, bool updateLogEntries)
 {
   screenIndex->changeSearchHighlights(newHighlights);
   if(updateLogEntries)
@@ -1115,7 +1112,8 @@ void MapPaintWidget::changeProfileHighlight(const atools::geo::Pos& pos)
 void MapPaintWidget::overlayStateFromMenu()
 {
   // Default implementation for hidden widget - disable all overlays
-  for(AbstractFloatItem *overlay : floatItems())
+  const QList<AbstractFloatItem *> floats = floatItems();
+  for(AbstractFloatItem *overlay : floats)
   {
     overlay->setVisible(false);
     overlay->hide();
@@ -1276,6 +1274,19 @@ void MapPaintWidget::paintEvent(QPaintEvent *paintEvent)
     // Avoid excessive logging on visible widget
     qDebug() << Q_FUNC_INFO << "Viewport" << getCurrentViewBoundingBox().toString(GeoDataCoordinates::Degree);
     qDebug() << Q_FUNC_INFO << "currentViewBoundingBox" << currentViewBoundingBox.toString(GeoDataCoordinates::Degree);
+    qDebug() << Q_FUNC_INFO << "skipRender" << skipRender << "painting" << painting
+             << "noRender" << noRender() << "mapCoversViewport" << viewport()->mapCoversViewport();
+  }
+
+  if(skipRender)
+  {
+    // Skip unneeded rendering after single mouseclick
+    skipRender = false;
+
+    // Exit paint only if the map covers the whole view.
+    // Spurious paint events are triggered if the coverage is not complete (e.g. black background around the globe)
+    if(viewport()->mapCoversViewport())
+      return;
   }
 
   if(!painting)

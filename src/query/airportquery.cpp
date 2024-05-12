@@ -101,6 +101,41 @@ AirportQuery::~AirportQuery()
   delete mapTypesFactory;
 }
 
+void AirportQuery::loadAirportProcedureCache()
+{
+  // Load all airport idents having procedures from navdatabase
+  airportsWithProceduresIdent.clear();
+  airportsWithProceduresIata.clear();
+
+  if(navdata && NavApp::isNavdataMixed())
+  {
+    SqlQuery query(db);
+    query.exec("select ident, iata from airport where num_approach > 0");
+    while(query.next())
+    {
+      airportsWithProceduresIdent.insert(query.valueStr(0));
+      airportsWithProceduresIata.insert(query.valueStr(1));
+    }
+  }
+}
+
+void AirportQuery::correctAirportProcedureFlag(MapAirport& airport)
+{
+  if(!airportsWithProceduresIdent.isEmpty())
+    airport.flags.setFlag(map::AP_PROCEDURE, hasAirportProcedures(airport.ident, airport.iata));
+}
+
+bool AirportQuery::hasAirportProcedures(const QString& ident, const QString& iata)
+{
+  if(!ident.isEmpty() && airportsWithProceduresIdent.contains(ident))
+    return true;
+
+  if(!iata.isEmpty() && airportsWithProceduresIata.contains(iata))
+    return true;
+
+  return false;
+}
+
 void AirportQuery::getAirportAdminNamesById(int airportId, QString& city, QString& state, QString& country)
 {
   if(!query::valid(Q_FUNC_INFO, airportAdminByIdQuery))
@@ -129,6 +164,7 @@ void AirportQuery::getAirportById(map::MapAirport& airport, int airportId)
   if(!query::valid(Q_FUNC_INFO, airportByIdQuery))
     return;
 
+  int routeIndex = airport.routeIndex; // Remember index if set
   map::MapAirport *ap = airportIdCache.object(airportId);
 
   if(ap != nullptr)
@@ -143,9 +179,14 @@ void AirportQuery::getAirportById(map::MapAirport& airport, int airportId)
       mapTypesFactory->fillAirport(airportByIdQuery->record(), *ap, true /* complete */, navdata, NavApp::isAirportDatabaseXPlane(navdata));
     airportByIdQuery->finish();
 
+    if(!navdata)
+      NavApp::getAirportQueryNav()->correctAirportProcedureFlag(ap);
+
     airport = *ap;
     airportIdCache.insert(airportId, ap);
   }
+
+  airport.routeIndex = routeIndex;
 }
 
 map::MapAirport AirportQuery::getAirportByIdent(const QString& ident)
@@ -174,6 +215,8 @@ void AirportQuery::getAirportByIdent(map::MapAirport& airport, const QString& id
       mapTypesFactory->fillAirport(airportByIdentQuery->record(), *ap, true /* complete */, navdata,
                                    NavApp::isAirportDatabaseXPlane(navdata));
     airportByIdentQuery->finish();
+    if(!navdata)
+      NavApp::getAirportQueryNav()->correctAirportProcedureFlag(ap);
 
     airport = *ap;
     airportIdentCache.insert(ident, ap);
@@ -199,10 +242,12 @@ void AirportQuery::getAirportsByTruncatedIdent(QList<map::MapAirport>& airports,
   airportsByTruncatedIdentQuery->exec();
   while(airportsByTruncatedIdentQuery->next())
   {
-    map::MapAirport ap;
-    mapTypesFactory->fillAirport(airportsByTruncatedIdentQuery->record(), ap, true /* complete */, navdata,
+    map::MapAirport airport;
+    mapTypesFactory->fillAirport(airportsByTruncatedIdentQuery->record(), airport, true /* complete */, navdata,
                                  NavApp::isAirportDatabaseXPlane(navdata));
-    airports.append(ap);
+    if(!navdata)
+      NavApp::getAirportQueryNav()->correctAirportProcedureFlag(airport);
+    airports.append(airport);
   }
 }
 
@@ -261,6 +306,8 @@ void AirportQuery::getAirportsByOfficialIdent(QList<map::MapAirport>& airports, 
       map::MapAirport airport;
       mapTypesFactory->fillAirport(airportByOfficialQuery->record(), airport, true /* complete */, navdata,
                                    NavApp::isAirportDatabaseXPlane(navdata));
+      if(!navdata)
+        NavApp::getAirportQueryNav()->correctAirportProcedureFlag(airport);
       airports.append(airport);
     }
   }
@@ -285,14 +332,18 @@ void AirportQuery::getAirportFuzzy(map::MapAirport& airport, const map::MapAirpo
   if(!airportCopy.isValid())
     return;
 
-  map::MapAirport *ap = airportFuzzyIdCache.object(airportCopy.id);
-  QList<map::MapAirport> airports;
+  map::MapAirport *apCached = airportFuzzyIdCache.object(airportCopy.id);
 
-  if(ap != nullptr)
-    // Found in cache
-    airport = *ap;
+  if(apCached != nullptr)
+    // Found in cache - copy from pointer
+    airport = *apCached;
   else
   {
+    QList<map::MapAirport> airports;
+
+    // Create new airport for caching
+    apCached = new map::MapAirport;
+
     // airportFrom has to be copied to avoid overwriting
     // Try exact ident match first
     map::MapAirport airportByIdent;
@@ -328,13 +379,15 @@ void AirportQuery::getAirportFuzzy(map::MapAirport& airport, const map::MapAirpo
       ageo::Rect rect(airportCopy.position, ageo::nmToMeter(10.f), true /* fast */);
 
       query::fetchObjectsForRect(rect, airportByPosQuery, [ =, &airports](atools::sql::SqlQuery *query) -> void {
-        map::MapAirport obj;
-        mapTypesFactory->fillAirport(query->record(), obj, true /* complete */, navdata, NavApp::isAirportDatabaseXPlane(navdata));
-        airports.append(obj);
+        map::MapAirport airportByCoord;
+        mapTypesFactory->fillAirport(query->record(), airportByCoord, true /* complete */,
+                                     navdata, NavApp::isAirportDatabaseXPlane(navdata));
+        if(!navdata)
+          NavApp::getAirportQueryNav()->correctAirportProcedureFlag(airportByCoord);
+        airports.append(airportByCoord);
       });
     }
 
-    ap = new map::MapAirport;
     if(!airports.isEmpty())
     {
       // Sort by distance and remove too far away
@@ -343,14 +396,17 @@ void AirportQuery::getAirportFuzzy(map::MapAirport& airport, const map::MapAirpo
 
       if(!airports.isEmpty())
         // Assign to cache object
-        *ap = airports.constFirst();
+        *apCached = airports.constFirst();
     } // else assign empty airport to indicate that is it not available
 
-    airport = *ap;
-    airportFuzzyIdCache.insert(airportCopy.id, ap);
+    // Can be valid or empty
+    airport = *apCached;
+
+    // Also insert negative entries for not found
+    airportFuzzyIdCache.insert(airportCopy.id, apCached);
 
 #ifdef DEBUG_INFORMATION
-    qDebug() << Q_FUNC_INFO << "Found" << *ap << "as replacement for" << airportCopy;
+    qDebug() << Q_FUNC_INFO << "Found" << *apCached << "as replacement for" << airportCopy;
 #endif
   }
 }
@@ -668,7 +724,7 @@ void AirportQuery::startByNameAndPos(map::MapStart& start, int airportId, const 
     // Now find the nearest since number is not unique for helipads and runways
     map::MapStart minStart;
     float minDistance = map::INVALID_DISTANCE_VALUE;
-    for(const map::MapStart& s : starts)
+    for(const map::MapStart& s : qAsConst(starts))
     {
       float dist = position.distanceMeterTo(s.position);
 
@@ -814,7 +870,7 @@ const map::MapResultIndex *AirportQuery::nearestProcAirportsInternal(const atool
     result->remove(pos, distanceNm);
 
     // Sort the rest by distance
-    result->sort(pos, true /*sortNearToFar*/);
+    result->sort(pos);
 
     nearestAirportCache.insert(key, result);
   }
@@ -945,13 +1001,15 @@ void AirportQuery::getRunwaysAndAirports(map::MapResultIndex& runwayAirports, co
       {
         map::MapAirport airport;
         mapTypesFactory->fillAirport(query.record(), airport, false /* complete */, navdata, xp);
+        if(!navdata)
+          NavApp::getAirportQueryNav()->correctAirportProcedureFlag(airport);
         runwayAirports.add(map::MapResult::createFromMapBase(&airport));
       }
     }
   }
 
   // Sort by distance to airport or runway line nearest at beginning of list
-  runwayAirports.sort(pos, true /* sortNearToFar */);
+  runwayAirports.sort(pos);
 }
 
 const QList<map::MapTaxiPath> *AirportQuery::getTaxiPaths(int airportId)
@@ -1360,6 +1418,8 @@ void AirportQuery::initQueries()
     "join runway_end p on r.primary_end_id = p.runway_end_id "
     "join runway_end s on r.secondary_end_id = s.runway_end_id "
     "where r.airport_id = :airportId");
+
+  loadAirportProcedureCache();
 }
 
 void AirportQuery::deInitQueries()
@@ -1373,87 +1433,43 @@ void AirportQuery::deInitQueries()
   airportIdentCache.clear();
   airportIdCache.clear();
   airportFuzzyIdCache.clear();
+  airportsWithProceduresIdent.clear();
+  airportsWithProceduresIata.clear();
+  nearestAirportCache.clear();
 
-  delete runwayOverviewQuery;
-  runwayOverviewQuery = nullptr;
-
-  delete apronQuery;
-  apronQuery = nullptr;
-
-  delete parkingQuery;
-  parkingQuery = nullptr;
-
-  delete startQuery;
-  startQuery = nullptr;
-  delete startByIdQuery;
-  startByIdQuery = nullptr;
-
-  delete parkingTypeNumberQuery;
-  parkingTypeNumberQuery = nullptr;
-
-  delete parkingTypeNumberSuffixQuery;
-  parkingTypeNumberSuffixQuery = nullptr;
-
-  delete parkingNameQuery;
-  parkingNameQuery = nullptr;
-
-  delete helipadQuery;
-  helipadQuery = nullptr;
-
-  delete taxiparthQuery;
-  taxiparthQuery = nullptr;
-
-  delete runwaysQuery;
-  runwaysQuery = nullptr;
-
-  delete airportByIdQuery;
-  airportByIdQuery = nullptr;
-
-  delete airportAdminByIdQuery;
-  airportAdminByIdQuery = nullptr;
-
-  delete airportProcByIdQuery;
-  airportProcByIdQuery = nullptr;
-
-  delete procDepartureByAirportIdQuery;
-  procDepartureByAirportIdQuery = nullptr;
-
-  delete procArrivalByAirportIdQuery;
-  procArrivalByAirportIdQuery = nullptr;
-
-  delete airportByIdentQuery;
-  airportByIdentQuery = nullptr;
-
-  delete airportsByTruncatedIdentQuery;
-  airportsByTruncatedIdentQuery = nullptr;
-
-  delete airportByOfficialQuery;
-  airportByOfficialQuery = nullptr;
-
-  delete airportByPosQuery;
-  airportByPosQuery = nullptr;
-
-  delete airportCoordsByIdentQuery;
-  airportCoordsByIdentQuery = nullptr;
-
-  delete airportCoordsByIdentOrIcaoQuery;
-  airportCoordsByIdentOrIcaoQuery = nullptr;
-
-  delete airportByRectAndProcQuery;
-  airportByRectAndProcQuery = nullptr;
-
-  delete runwayEndByIdQuery;
-  runwayEndByIdQuery = nullptr;
-
-  delete runwayEndByNameQuery;
-  runwayEndByNameQuery = nullptr;
+  ATOOLS_DELETE(runwayOverviewQuery);
+  ATOOLS_DELETE(apronQuery);
+  ATOOLS_DELETE(parkingQuery);
+  ATOOLS_DELETE(startQuery);
+  ATOOLS_DELETE(startByIdQuery);
+  ATOOLS_DELETE(parkingTypeNumberQuery);
+  ATOOLS_DELETE(parkingTypeNumberSuffixQuery);
+  ATOOLS_DELETE(parkingNameQuery);
+  ATOOLS_DELETE(helipadQuery);
+  ATOOLS_DELETE(taxiparthQuery);
+  ATOOLS_DELETE(runwaysQuery);
+  ATOOLS_DELETE(airportByIdQuery);
+  ATOOLS_DELETE(airportAdminByIdQuery);
+  ATOOLS_DELETE(airportProcByIdQuery);
+  ATOOLS_DELETE(procDepartureByAirportIdQuery);
+  ATOOLS_DELETE(procArrivalByAirportIdQuery);
+  ATOOLS_DELETE(airportByIdentQuery);
+  ATOOLS_DELETE(airportsByTruncatedIdentQuery);
+  ATOOLS_DELETE(airportByOfficialQuery);
+  ATOOLS_DELETE(airportByPosQuery);
+  ATOOLS_DELETE(airportCoordsByIdentQuery);
+  ATOOLS_DELETE(airportCoordsByIdentOrIcaoQuery);
+  ATOOLS_DELETE(airportByRectAndProcQuery);
+  ATOOLS_DELETE(runwayEndByIdQuery);
+  ATOOLS_DELETE(runwayEndByNameQuery);
 }
 
 QHash<int, QList<map::MapParking> > AirportQuery::getParkingCache() const
 {
   QHash<int, QList<map::MapParking> > retval;
 
-  for(int key : parkingCache.keys())
+  const QList<int> keys = parkingCache.keys();
+  for(int key : keys)
     retval.insert(key, *parkingCache.object(key));
 
   return retval;
@@ -1463,7 +1479,8 @@ QHash<int, QList<map::MapHelipad> > AirportQuery::getHelipadCache() const
 {
   QHash<int, QList<map::MapHelipad> > retval;
 
-  for(int key : helipadCache.keys())
+  const QList<int> keys = helipadCache.keys();
+  for(int key : keys)
     retval.insert(key, *helipadCache.object(key));
 
   return retval;

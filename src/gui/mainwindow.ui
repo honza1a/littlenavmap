@@ -58,8 +58,9 @@
      <property name="title">
       <string>E&amp;xport Flight Plan to Other Formats</string>
      </property>
+     <addaction name="actionRouteShowSkyVector"/>
+     <addaction name="separator"/>
      <addaction name="actionRouteSaveAsHtml"/>
-     <addaction name="actionRouteSaveAsGpx"/>
      <addaction name="separator"/>
      <addaction name="actionRouteSaveAsVfp"/>
      <addaction name="actionRouteSaveAsIvap"/>
@@ -72,6 +73,15 @@
      <addaction name="actionRouteSaveApprWaypointsOpt"/>
      <addaction name="actionRouteSaveSidStarWaypointsOpt"/>
      <addaction name="actionRouteSaveAirwayWaypointsOpt"/>
+    </widget>
+    <widget class="QMenu" name="menuGPXGPSExchangeFormat">
+     <property name="title">
+      <string>&amp;GPS Exchange Format (GPX)</string>
+     </property>
+     <addaction name="actionLoadAircraftTrailFromGPX"/>
+     <addaction name="actionAppendAircraftTrailFromGPX"/>
+     <addaction name="separator"/>
+     <addaction name="actionSaveAircraftTrailToGPX"/>
     </widget>
     <addaction name="actionRouteNew"/>
     <addaction name="actionRouteOpen"/>
@@ -91,7 +101,8 @@
     <addaction name="actionRouteFetchFromSimBrief"/>
     <addaction name="actionRouteSendToSimBrief"/>
     <addaction name="separator"/>
-    <addaction name="actionRouteShowSkyVector"/>
+    <addaction name="menuGPXGPSExchangeFormat"/>
+    <addaction name="separator"/>
     <addaction name="menuExportFlightplanToOnlineFormats"/>
     <addaction name="separator"/>
     <addaction name="menuExportOptions"/>
@@ -186,9 +197,23 @@
     <property name="title">
      <string>&amp;Help</string>
     </property>
-    <addaction name="actionHelpContents"/>
-    <addaction name="actionHelpTutorials"/>
-    <addaction name="actionHelpNavmapLegend"/>
+    <widget class="QMenu" name="menuHelpUserManualImportantChapters">
+     <property name="title">
+      <string>User Manual - Helpful Chapters (Online)</string>
+     </property>
+     <addaction name="actionHelpUserManualStart"/>
+     <addaction name="actionHelpUserManualTutorials"/>
+     <addaction name="separator"/>
+     <addaction name="actionHelpUserManualUserInterface"/>
+     <addaction name="actionHelpUserManualMainMenu"/>
+     <addaction name="separator"/>
+     <addaction name="actionHelpUserManualFlightPlanning"/>
+     <addaction name="actionHelpUserManualAircraftPerf"/>
+     <addaction name="actionHelpUserManualMapDisplay"/>
+     <addaction name="actionHelpUserManualLegend"/>
+    </widget>
+    <addaction name="actionHelpUserManualContents"/>
+    <addaction name="menuHelpUserManualImportantChapters"/>
     <addaction name="separator"/>
     <addaction name="actionHelpContentsOffline"/>
     <addaction name="separator"/>
@@ -226,8 +251,10 @@
     <addaction name="actionOpenWebserver"/>
     <addaction name="separator"/>
     <addaction name="actionResetMessages"/>
+    <addaction name="separator"/>
     <addaction name="actionResetAllSettings"/>
     <addaction name="actionSaveAllNow"/>
+    <addaction name="actionCreateACrashReport"/>
     <addaction name="separator"/>
     <addaction name="actionCreateDirStructure"/>
     <addaction name="menuHelpFilesAndFolders"/>
@@ -432,6 +459,7 @@
     <addaction name="menuViewUserpoints"/>
     <addaction name="separator"/>
     <addaction name="actionMapShowRoute"/>
+    <addaction name="actionMapShowAlternate"/>
     <addaction name="actionMapShowTocTod"/>
     <addaction name="actionInfoApproachShowMissedAppr"/>
     <addaction name="separator"/>
@@ -535,8 +563,18 @@
     <addaction name="menuMapShowAirportWeatherSource"/>
     <addaction name="menuHighAltitudeWindSource"/>
    </widget>
+   <widget class="QMenu" name="menuSearch">
+    <property name="title">
+     <string>&amp;Search</string>
+    </property>
+    <addaction name="actionShortcutAirportSearch"/>
+    <addaction name="actionShortcutNavaidSearch"/>
+    <addaction name="actionShortcutUserpointSearch"/>
+    <addaction name="actionShortcutLogbookSearch"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuRoute"/>
+   <addaction name="menuSearch"/>
    <addaction name="menuMap"/>
    <addaction name="menuMapView"/>
    <addaction name="menuWeather"/>
@@ -641,12 +679,12 @@
             <number>2</number>
            </property>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayoutAirportNameSearch">
+            <layout class="QHBoxLayout" name="horizontalLayoutAirportTextSearch">
              <property name="spacing">
               <number>0</number>
              </property>
              <item>
-              <widget class="QLineEdit" name="lineEditAirportIcaoSearch">
+              <widget class="QLineEdit" name="lineEditAirportTextSearch">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                  <horstretch>1</horstretch>
@@ -654,41 +692,17 @@
                 </sizepolicy>
                </property>
                <property name="toolTip">
-                <string>Airport ICAO, IATA, FAA or local code</string>
+                <string>Airport ident (ICAO, IATA, FAA or local), name, city, state, province, country or area code.
+Searches for partial text in all fields. Note that not all fields are available depending on simulator.</string>
                </property>
                <property name="statusTip">
-                <string>Airport ICAO, IATA, FAA or local code</string>
+                <string>Airport ident (ICAO, IATA, FAA or local), name, city, state, province, country or area code.\nSearches for partial text in all fields.</string>
+               </property>
+               <property name="text">
+                <string/>
                </property>
                <property name="placeholderText">
-                <string>Ident</string>
-               </property>
-               <property name="clearButtonEnabled">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="lineEditAirportNameSearch">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-                 <horstretch>2</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="sizeIncrement">
-                <size>
-                 <width>0</width>
-                 <height>0</height>
-                </size>
-               </property>
-               <property name="toolTip">
-                <string>Airport name</string>
-               </property>
-               <property name="statusTip">
-                <string>Airport name</string>
-               </property>
-               <property name="placeholderText">
-                <string>Name</string>
+                <string>Ident, name, city, state, province, country or area code</string>
                </property>
                <property name="clearButtonEnabled">
                 <bool>true</bool>
@@ -789,57 +803,140 @@
             </layout>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayoutAirportNameSearch2">
+            <widget class="Line" name="lineAirportAdminSearch">
+             <property name="lineWidth">
+              <number>4</number>
+             </property>
+             <property name="midLineWidth">
+              <number>2</number>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QVBoxLayout" name="verticalLayoutAirportAdminSearch">
              <property name="spacing">
               <number>0</number>
              </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
              <item>
-              <widget class="QLineEdit" name="lineEditAirportCitySearch">
-               <property name="toolTip">
-                <string>Airport city</string>
+              <layout class="QHBoxLayout" name="horizontalLayout_3">
+               <property name="spacing">
+                <number>0</number>
                </property>
-               <property name="statusTip">
-                <string>Airport city</string>
+               <property name="topMargin">
+                <number>0</number>
                </property>
-               <property name="placeholderText">
-                <string>City</string>
-               </property>
-               <property name="clearButtonEnabled">
-                <bool>true</bool>
-               </property>
-              </widget>
+               <item>
+                <widget class="QLineEdit" name="lineEditAirportIcaoSearch">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                   <horstretch>1</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="toolTip">
+                  <string>Airport ICAO, IATA, FAA or local code</string>
+                 </property>
+                 <property name="statusTip">
+                  <string>Airport ICAO, IATA, FAA or local code</string>
+                 </property>
+                 <property name="placeholderText">
+                  <string>Ident</string>
+                 </property>
+                 <property name="clearButtonEnabled">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLineEdit" name="lineEditAirportNameSearch">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                   <horstretch>2</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="toolTip">
+                  <string>Airport name</string>
+                 </property>
+                 <property name="statusTip">
+                  <string>Airport name</string>
+                 </property>
+                 <property name="placeholderText">
+                  <string>Name</string>
+                 </property>
+                 <property name="clearButtonEnabled">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </item>
              <item>
-              <widget class="QLineEdit" name="lineEditAirportStateSearch">
-               <property name="toolTip">
-                <string>Airport state or province</string>
+              <layout class="QHBoxLayout" name="horizontalLayout_5">
+               <property name="spacing">
+                <number>0</number>
                </property>
-               <property name="statusTip">
-                <string>Airport state or province</string>
+               <property name="topMargin">
+                <number>0</number>
                </property>
-               <property name="placeholderText">
-                <string>State / Province</string>
-               </property>
-               <property name="clearButtonEnabled">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="lineEditAirportCountrySearch">
-               <property name="toolTip">
-                <string>Airport country or area code if available</string>
-               </property>
-               <property name="statusTip">
-                <string>Airport country or area code if available</string>
-               </property>
-               <property name="placeholderText">
-                <string>Country / Area Code</string>
-               </property>
-               <property name="clearButtonEnabled">
-                <bool>true</bool>
-               </property>
-              </widget>
+               <item>
+                <widget class="QLineEdit" name="lineEditAirportCitySearch">
+                 <property name="toolTip">
+                  <string>Airport city.
+Not available for all simulators.</string>
+                 </property>
+                 <property name="statusTip">
+                  <string>Airport city</string>
+                 </property>
+                 <property name="placeholderText">
+                  <string>City</string>
+                 </property>
+                 <property name="clearButtonEnabled">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLineEdit" name="lineEditAirportStateSearch">
+                 <property name="toolTip">
+                  <string>Airport state or province.
+Not available for all simulators.</string>
+                 </property>
+                 <property name="statusTip">
+                  <string>Airport state or province</string>
+                 </property>
+                 <property name="placeholderText">
+                  <string>State / Province</string>
+                 </property>
+                 <property name="clearButtonEnabled">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLineEdit" name="lineEditAirportCountrySearch">
+                 <property name="toolTip">
+                  <string>Airport country or area code.
+Not available for all simulators.</string>
+                 </property>
+                 <property name="statusTip">
+                  <string>Airport country or area code if available</string>
+                 </property>
+                 <property name="placeholderText">
+                  <string>Country / Area Code</string>
+                 </property>
+                 <property name="clearButtonEnabled">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </item>
             </layout>
            </item>
@@ -858,8 +955,11 @@
            </item>
            <item>
             <layout class="QGridLayout" name="gridLayoutAirportExtSearch">
-             <property name="spacing">
+             <property name="horizontalSpacing">
               <number>0</number>
+             </property>
+             <property name="verticalSpacing">
+              <number>2</number>
              </property>
              <item row="2" column="6">
               <widget class="QCheckBox" name="checkBoxAirportClosedSearch">
@@ -877,16 +977,16 @@
                </property>
               </widget>
              </item>
-             <item row="2" column="7">
-              <widget class="QCheckBox" name="checkBoxAirportJetASearch">
+             <item row="1" column="6">
+              <widget class="QCheckBox" name="checkBoxAirportMilSearch">
                <property name="toolTip">
-                <string>Airports that have jet fuel</string>
+                <string>Military airports</string>
                </property>
                <property name="statusTip">
-                <string>Airports that have jet fuel</string>
+                <string>Military airports</string>
                </property>
                <property name="text">
-                <string>Jet&amp;fuel</string>
+                <string>&amp;Mil.</string>
                </property>
                <property name="tristate">
                 <bool>true</bool>
@@ -909,48 +1009,16 @@
                </property>
               </widget>
              </item>
-             <item row="1" column="4">
-              <widget class="QCheckBox" name="checkBoxAirportLightSearch">
+             <item row="1" column="0">
+              <widget class="QCheckBox" name="checkBoxAirportAddonSearch">
                <property name="toolTip">
-                <string>Airports with at least one lighted runway</string>
+                <string>Add-on airports</string>
                </property>
                <property name="statusTip">
-                <string>Airports with at least one lighted runway</string>
+                <string>Add-on airports</string>
                </property>
                <property name="text">
-                <string>&amp;Lighted</string>
-               </property>
-               <property name="tristate">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="6">
-              <widget class="QCheckBox" name="checkBoxAirportMilSearch">
-               <property name="toolTip">
-                <string>Military airports</string>
-               </property>
-               <property name="statusTip">
-                <string>Military airports</string>
-               </property>
-               <property name="text">
-                <string>Militar&amp;y</string>
-               </property>
-               <property name="tristate">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="7">
-              <widget class="QCheckBox" name="checkBoxAirportAvgasSearch">
-               <property name="toolTip">
-                <string>Airports that have avgas</string>
-               </property>
-               <property name="statusTip">
-                <string>Airports that have avgas</string>
-               </property>
-               <property name="text">
-                <string>Av&amp;gas</string>
+                <string>Add&amp;on</string>
                </property>
                <property name="tristate">
                 <bool>true</bool>
@@ -967,6 +1035,54 @@
                </property>
                <property name="text">
                 <string>&amp;Proc.</string>
+               </property>
+               <property name="tristate">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="4">
+              <widget class="QCheckBox" name="checkBoxAirportLightSearch">
+               <property name="toolTip">
+                <string>Airports with at least one lighted runway</string>
+               </property>
+               <property name="statusTip">
+                <string>Airports with at least one lighted runway</string>
+               </property>
+               <property name="text">
+                <string>&amp;Lighted</string>
+               </property>
+               <property name="tristate">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="7">
+              <widget class="QCheckBox" name="checkBoxAirportJetASearch">
+               <property name="toolTip">
+                <string>Airports that have jet fuel</string>
+               </property>
+               <property name="statusTip">
+                <string>Airports that have jet fuel</string>
+               </property>
+               <property name="text">
+                <string>Jet&amp;fuel</string>
+               </property>
+               <property name="tristate">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="7">
+              <widget class="QCheckBox" name="checkBoxAirportAvgasSearch">
+               <property name="toolTip">
+                <string>Airports that have avgas</string>
+               </property>
+               <property name="statusTip">
+                <string>Airports that have avgas</string>
+               </property>
+               <property name="text">
+                <string>Av&amp;gas</string>
                </property>
                <property name="tristate">
                 <bool>true</bool>
@@ -990,86 +1106,51 @@
               </widget>
              </item>
              <item row="2" column="0">
-              <layout class="QHBoxLayout" name="horizontalLayoutAirportRatingSearch">
-               <property name="spacing">
-                <number>0</number>
-               </property>
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>6</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QComboBox" name="comboBoxAirportRatingSearch">
-                 <property name="toolTip">
-                  <string>Airports that have a minimum star rating</string>
-                 </property>
-                 <property name="statusTip">
-                  <string>Airports that have a minimum star rating</string>
-                 </property>
-                 <property name="frame">
-                  <bool>true</bool>
-                 </property>
-                 <item>
-                  <property name="text">
-                   <string>All Ratings</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>At least ★</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>At least ★★</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>At least ★★★</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>At least ★★★★</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>★★★★★</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>3D (X-Plane)</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-              </layout>
-             </item>
-             <item row="1" column="0">
-              <widget class="QCheckBox" name="checkBoxAirportAddonSearch">
+              <widget class="QComboBox" name="comboBoxAirportRatingSearch">
                <property name="toolTip">
-                <string>Add-on airports</string>
+                <string>Airports that have a minimum star rating</string>
                </property>
                <property name="statusTip">
-                <string>Add-on airports</string>
+                <string>Airports that have a minimum star rating</string>
                </property>
-               <property name="text">
-                <string>Add&amp;on</string>
-               </property>
-               <property name="tristate">
+               <property name="frame">
                 <bool>true</bool>
                </property>
+               <item>
+                <property name="text">
+                 <string>All Ratings</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>At least ★</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>At least ★★</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>At least ★★★</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>At least ★★★★</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>★★★★★</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>3D (X-Plane)</string>
+                </property>
+               </item>
               </widget>
              </item>
             </layout>
@@ -1960,7 +2041,7 @@
                 <string>Navaid airport ICAO code</string>
                </property>
                <property name="placeholderText">
-                <string>Airport ICAO Code</string>
+                <string>Airport ident</string>
                </property>
                <property name="clearButtonEnabled">
                 <bool>true</bool>
@@ -2004,17 +2085,7 @@
              <item>
               <widget class="QPushButton" name="pushButtonNavHelpSearch">
                <property name="toolTip">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;
-&lt;p&gt;All set search conditions have to match.&lt;/p&gt;
-&lt;p&gt;Search tips for text fields: &lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Default is search for entries that start with text.&lt;/li&gt;
-&lt;li&gt;Use &amp;quot;*&amp;quot; as a placeholder for any text. &lt;/li&gt;
-&lt;li&gt;Prefix with &amp;quot;-&amp;quot; as first character to negate search.&lt;/li&gt;
-&lt;li&gt;Only ident field: Use double quotes like &amp;quot;TAU&amp;quot; to force exact search.&lt;/li&gt;
-&lt;li&gt;Only ident field: Enter a space separated list of idents to look for more than one navaid.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/body&gt;&lt;/html&gt;</string>
+                <string/>
                </property>
                <property name="statusTip">
                 <string>Show help for the navaid search tab</string>
@@ -3353,15 +3424,7 @@ Matches any visited airport.</string>
            <item>
             <widget class="QPushButton" name="pushButtonLogdataHelp">
              <property name="toolTip">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;
-&lt;p&gt;All set search conditions have to match.&lt;/p&gt;
-&lt;p&gt;Search tips for text fields: &lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Default is search for entries that start with text.&lt;/li&gt;
-&lt;li&gt;Use &amp;quot;*&amp;quot; as a placeholder for any text. &lt;/li&gt;
-&lt;li&gt;Prefix with &amp;quot;-&amp;quot; as first character to negate search.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/body&gt;&lt;/html&gt;</string>
+              <string/>
              </property>
              <property name="statusTip">
               <string>Show help for the logbook search tab</string>
@@ -3896,15 +3959,7 @@ Matches any visited airport.</string>
            <item>
             <widget class="QPushButton" name="pushButtonOnlineClientHelpSearch">
              <property name="toolTip">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;
-&lt;p&gt;All set search conditions have to match.&lt;/p&gt;
-&lt;p&gt;Search tips for text fields: &lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Default is search for entries that start with text.&lt;/li&gt;
-&lt;li&gt;Use &amp;quot;*&amp;quot; as a placeholder for any text. &lt;/li&gt;
-&lt;li&gt;Prefix with &amp;quot;-&amp;quot; as first character to negate search.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/body&gt;&lt;/html&gt;</string>
+              <string/>
              </property>
              <property name="statusTip">
               <string>Show help for the navaid search tab</string>
@@ -4159,15 +4214,7 @@ Matches any visited airport.</string>
            <item>
             <widget class="QPushButton" name="pushButtonOnlineCenterHelpSearch">
              <property name="toolTip">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;
-&lt;p&gt;All set search conditions have to match.&lt;/p&gt;
-&lt;p&gt;Search tips for text fields: &lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Default is search for entries that start with text.&lt;/li&gt;
-&lt;li&gt;Use &amp;quot;*&amp;quot; as a placeholder for any text. &lt;/li&gt;
-&lt;li&gt;Prefix with &amp;quot;-&amp;quot; as first character to negate search.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/body&gt;&lt;/html&gt;</string>
+              <string/>
              </property>
              <property name="statusTip">
               <string>Show help for the navaid search tab</string>
@@ -6391,7 +6438,7 @@ relation to shown airport</string>
    </attribute>
    <addaction name="actionShowFullscreenMap"/>
   </widget>
-  <widget class="QToolBar" name="toolbarMapOptions">
+  <widget class="QToolBar" name="toolBarMapOptions">
    <property name="windowTitle">
     <string>Map Options Toolbar</string>
    </property>
@@ -6415,6 +6462,7 @@ relation to shown airport</string>
    <addaction name="separator"/>
    <addaction name="actionMapShowRoute"/>
    <addaction name="actionInfoApproachShowMissedAppr"/>
+   <addaction name="actionMapShowAlternate"/>
    <addaction name="separator"/>
    <addaction name="actionMapShowAircraft"/>
    <addaction name="actionMapShowAircraftTrack"/>
@@ -6805,7 +6853,7 @@ relation to shown airport</string>
     <string>Show the statusbar</string>
    </property>
   </action>
-  <action name="actionHelpContents">
+  <action name="actionHelpUserManualContents">
    <property name="icon">
     <iconset resource="../../littlenavmap.qrc">
      <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
@@ -6888,7 +6936,7 @@ relation to shown airport</string>
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>All</string>
+    <string>Toggle All / None</string>
    </property>
    <property name="toolTip">
     <string>Show all or no additional search options</string>
@@ -6935,7 +6983,7 @@ relation to shown airport</string>
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>All</string>
+    <string>Toggle All / None</string>
    </property>
    <property name="toolTip">
     <string>Show all or no additional navaid search options</string>
@@ -7805,22 +7853,19 @@ relation to shown airport</string>
     <string>Remove all recent flight plans from menu</string>
    </property>
   </action>
-  <action name="actionHelpNavmapLegend">
+  <action name="actionHelpUserManualLegend">
    <property name="icon">
     <iconset resource="../../littlenavmap.qrc">
      <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
    </property>
    <property name="text">
-    <string>&amp;User Manual - Map Legend (Online)</string>
+    <string>Map &amp;Legend</string>
    </property>
    <property name="toolTip">
     <string>Show the navigation map legend online in a browser</string>
    </property>
    <property name="statusTip">
-    <string>Show the navigation map legend online in a browser</string>
-   </property>
-   <property name="shortcut">
-    <string>Shift+F1</string>
+    <string>Show the navigation map legend</string>
    </property>
   </action>
   <action name="actionResetMessages">
@@ -8604,9 +8649,9 @@ relation to shown airport</string>
     <string>Show simulator AI and multiplayer ships on the map</string>
    </property>
   </action>
-  <action name="actionRouteSaveAsGpx">
+  <action name="actionSaveAircraftTrailToGPX">
    <property name="text">
-    <string>Export Flight Plan as GP&amp;X ...</string>
+    <string>&amp;Export Flight Plan and Trail as GPX ...</string>
    </property>
    <property name="toolTip">
     <string>Save flight plan and flown track in GPS Exchange Format usable by Google Earth and many other Programs</string>
@@ -8626,19 +8671,19 @@ relation to shown airport</string>
     <string>Reset the window layout and all dock windows back to default</string>
    </property>
   </action>
-  <action name="actionHelpTutorials">
+  <action name="actionHelpUserManualTutorials">
    <property name="icon">
     <iconset resource="../../littlenavmap.qrc">
      <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
    </property>
    <property name="text">
-    <string>&amp;User Manual - Tutorials (Online)</string>
+    <string>&amp;Tutorials</string>
    </property>
    <property name="toolTip">
     <string>Show the online tutorials in a browser</string>
    </property>
    <property name="statusTip">
-    <string>Show the online tutorials in a browser</string>
+    <string>Show the online tutorials</string>
    </property>
   </action>
   <action name="actionExport">
@@ -11916,7 +11961,7 @@ relation to shown airport</string>
      <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
    </property>
    <property name="text">
-    <string>&amp;Changelog</string>
+    <string>&amp;Changelog (Offline, Text)</string>
    </property>
    <property name="toolTip">
     <string>Open changelog in text editor</string>
@@ -11995,6 +12040,218 @@ relation to shown airport</string>
     <string>Show map grid</string>
    </property>
   </action>
+  <action name="actionRouteDirectTo">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/directto.svg</normaloff>:/littlenavmap/resources/icons/directto.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Direct to %1</string>
+   </property>
+   <property name="toolTip">
+    <string>Change flight plan to fly direct to leg or navaid</string>
+   </property>
+   <property name="statusTip">
+    <string>Change flight plan to fly direct to leg or navaid</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+D</string>
+   </property>
+  </action>
+  <action name="actionSearchDirectTo">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/directto.svg</normaloff>:/littlenavmap/resources/icons/directto.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Direct to %1</string>
+   </property>
+   <property name="toolTip">
+    <string>Change flight plan to fly direct to leg or navaid</string>
+   </property>
+   <property name="statusTip">
+    <string>Change flight plan to fly direct to leg or navaid</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+D</string>
+   </property>
+  </action>
+  <action name="actionMapShowAlternate">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/alternate.svg</normaloff>:/littlenavmap/resources/icons/alternate.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Show &amp;Alternate Airports</string>
+   </property>
+   <property name="toolTip">
+    <string>Show legs to alternate airports and airports for flight plan on the map</string>
+   </property>
+   <property name="statusTip">
+    <string>Show legs to alternate airports and airports for flight plan on the map</string>
+   </property>
+  </action>
+  <action name="actionCreateACrashReport">
+   <property name="text">
+    <string>&amp;Create an Issue Report</string>
+   </property>
+   <property name="toolTip">
+    <string>Builds an issue report package containing all related files to report a problem</string>
+   </property>
+   <property name="statusTip">
+    <string>Builds an issue report package containing all related files to report a problem</string>
+   </property>
+  </action>
+  <action name="actionLoadAircraftTrailFromGPX">
+   <property name="text">
+    <string>&amp;Load Aircraft Trail from GPX ...</string>
+   </property>
+   <property name="toolTip">
+    <string>Load aircraft trail from a GPX file replacing the current user aircraft trail</string>
+   </property>
+   <property name="statusTip">
+    <string>Load aircraft trail from a GPX file replacing the current user aircraft trail</string>
+   </property>
+  </action>
+  <action name="actionAppendAircraftTrailFromGPX">
+   <property name="text">
+    <string>&amp;Append Aircraft Trail from GPX ...</string>
+   </property>
+   <property name="toolTip">
+    <string>Load aircraft trail from a GPX file and append it to the current user aircraft trail</string>
+   </property>
+   <property name="statusTip">
+    <string>Load aircraft trail from a GPX file and append it to the current user aircraft trail</string>
+   </property>
+  </action>
+  <action name="actionAirportSearchShowAdminOptions">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Names</string>
+   </property>
+   <property name="toolTip">
+    <string>Show airport administrative search options like city names or countries</string>
+   </property>
+   <property name="statusTip">
+    <string>Show airport administrative search options like city names or countries</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualMainMenu">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Main Menu and Toolbar Items</string>
+   </property>
+   <property name="toolTip">
+    <string>Show information about all main menu and toolbar items online in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show information about all main menu and toolbar items</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualMapDisplay">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Map &amp;Display and Context Menu</string>
+   </property>
+   <property name="toolTip">
+    <string>Show information about the map display and its context menu online in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show information about the map display and its context menu</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualStart">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Start and first Steps</string>
+   </property>
+   <property name="toolTip">
+    <string>Show the start and first steps page online in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show the start and first steps page</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualUserInterface">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;User Interface</string>
+   </property>
+   <property name="toolTip">
+    <string>Show general help about the user interface in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show general help about the user interface</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualFlightPlanning">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Flight Planning</string>
+   </property>
+   <property name="toolTip">
+    <string>Show help about flight planning in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show help about flight planning</string>
+   </property>
+  </action>
+  <action name="actionHelpUserManualAircraftPerf">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/help.svg</normaloff>:/littlenavmap/resources/icons/help.svg</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Aircraft Performance</string>
+   </property>
+   <property name="toolTip">
+    <string>Show information about aircraft performance in a browser</string>
+   </property>
+   <property name="statusTip">
+    <string>Show information about aircraft performance</string>
+   </property>
+  </action>
+  <action name="actionRouteConvertProcedure">
+   <property name="icon">
+    <iconset resource="../../littlenavmap.qrc">
+     <normaloff>:/littlenavmap/resources/icons/approachconvert.svg</normaloff>:/littlenavmap/resources/icons/approachconvert.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Convert %1 to &amp;Waypoints</string>
+   </property>
+   <property name="toolTip">
+    <string>Convert the procedure to waypoints which allows editing</string>
+   </property>
+   <property name="statusTip">
+    <string>Convert the procedure to waypoints which allows editing</string>
+   </property>
+  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <tabstops>
@@ -12041,21 +12298,11 @@ relation to shown airport</string>
   <tabstop>textBrowserAircraftProgressInfo</tabstop>
   <tabstop>textBrowserAircraftAiInfo</tabstop>
   <tabstop>tabWidgetSearch</tabstop>
-  <tabstop>lineEditAirportIcaoSearch</tabstop>
-  <tabstop>lineEditAirportNameSearch</tabstop>
-  <tabstop>pushButtonAirportSearchReset</tabstop>
-  <tabstop>pushButtonAirportSearchClearSelection</tabstop>
-  <tabstop>pushButtonAirportHelpSearch</tabstop>
-  <tabstop>toolButtonAirportSearch</tabstop>
-  <tabstop>lineEditAirportCitySearch</tabstop>
-  <tabstop>lineEditAirportStateSearch</tabstop>
-  <tabstop>lineEditAirportCountrySearch</tabstop>
   <tabstop>checkBoxAirportAddonSearch</tabstop>
   <tabstop>checkBoxAirportLightSearch</tabstop>
   <tabstop>checkBoxAirportIlsSearch</tabstop>
   <tabstop>checkBoxAirportMilSearch</tabstop>
   <tabstop>checkBoxAirportAvgasSearch</tabstop>
-  <tabstop>comboBoxAirportRatingSearch</tabstop>
   <tabstop>checkBoxAirportTowerSearch</tabstop>
   <tabstop>checkBoxAirportApprSearch</tabstop>
   <tabstop>checkBoxAirportClosedSearch</tabstop>

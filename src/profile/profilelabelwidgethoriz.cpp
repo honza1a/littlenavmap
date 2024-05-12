@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -17,13 +17,12 @@
 
 #include "profile/profilelabelwidgethoriz.h"
 
+#include "app/navapp.h"
 #include "atools.h"
 #include "common/mapcolors.h"
-#include "common/unit.h"
-#include "app/navapp.h"
+#include "profile/profileoptions.h"
 #include "profile/profilescrollarea.h"
 #include "profile/profilewidget.h"
-#include "profile/profileoptions.h"
 #include "route/route.h"
 
 #include <QContextMenuEvent>
@@ -73,6 +72,7 @@ void ProfileLabelWidgetHoriz::paintEvent(QPaintEvent *)
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setRenderHint(QPainter::TextAntialiasing);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform);
 
   const QVector<int>& waypointX = profileWidget->getWaypointX();
 
@@ -94,7 +94,7 @@ void ProfileLabelWidgetHoriz::paintEvent(QPaintEvent *)
     // Prepare normal font sligthly smaller ============
     QFont fontNormal = QApplication::font();
     fontNormal.setPointSizeF(fontNormal.pointSizeF() * 0.85);
-    fontNormal.setBold(false);
+    fontNormal.setBold(QApplication::font().bold());
     QFontMetrics metricsNormal(fontNormal);
 
     QPoint offset = scrollArea->getOffset();
@@ -135,7 +135,7 @@ void ProfileLabelWidgetHoriz::paintEvent(QPaintEvent *)
           else
             painter.setPen(mapcolors::profileElevationScalePen);
 
-          const RouteLeg& leg = route.getLegAt(i);
+          const RouteLeg& leg = route.value(i);
           int legWidth = x - x0;
           int pos = x0 + legWidth / 2;
 

@@ -40,10 +40,11 @@
 
 using namespace Marble;
 using namespace atools::geo;
+using atools::contains;
+using map::MapType;
+using map::PosCourse;
 using proc::MapProcedureLeg;
 using proc::MapProcedureLegs;
-using map::PosCourse;
-using atools::contains;
 namespace ageo = atools::geo;
 
 MapPainterRoute::MapPainterRoute(MapPaintWidget *mapWidget, MapScale *mapScale, PaintContext *paintContext)
@@ -61,6 +62,7 @@ void MapPainterRoute::render()
   // Clear before collecting duplicates
   routeProcIdMap.clear();
 
+  context->startTimer("Route");
   // Draw route including procedures =====================================
   if(context->objectDisplayTypes.testFlag(map::FLIGHTPLAN))
   {
@@ -75,18 +77,19 @@ void MapPainterRoute::render()
   // Draw the approach preview if any selected in the procedure search tab ========================
   if(context->mapLayerRoute->isApproach())
   {
-    // Draw multi preview =============
-    proc::MapProcedureLeg lastLegPoint;
+    // Draw multi preview ===========================================================
+    QSet<map::MapRef> procIdMapDummy; // No need for de-duplication pass dummy map in
     for(const proc::MapProcedureLegs& procedure : mapPaintWidget->getProcedureHighlights())
-      paintProcedure(lastLegPoint, routeProcIdMap, procedure, 0, procedure.previewColor, true /* preview */, true /* previewAll */);
+      paintProcedure(procIdMapDummy, procedure, 0, procedure.previewColor, true /* preview */, true /* previewAll */);
+    procIdMapDummy.clear();
 
-    // Draw selection =============
-    proc::MapProcedureLeg lastLegPointDummy;
+    // Draw selection highlight ===========================================================
     const proc::MapProcedureLegs& procedureHighlight = mapPaintWidget->getProcedureHighlight();
     if(!procedureHighlight.isEmpty())
-      paintProcedure(lastLegPointDummy, routeProcIdMap, procedureHighlight, 0, procedureHighlight.previewColor,
+      paintProcedure(procIdMapDummy, procedureHighlight, 0, procedureHighlight.previewColor,
                      true /* preview */, false /* previewAll */);
   }
+  context->endTimer("Route");
 }
 
 QString MapPainterRoute::buildLegText(const RouteLeg& leg)
@@ -124,7 +127,7 @@ QString MapPainterRoute::buildLegText(float distance, float courseMag, float cou
 void MapPainterRoute::paintRoute()
 {
   const Route *route = context->route;
-  if(route->isEmpty())
+  if(route->isEmpty() || (route->size() >= 2 && !resolves(route->getBoundingRect())))
     return;
 
   atools::util::PainterContextSaver saver(context->painter);
@@ -145,6 +148,7 @@ void MapPainterRoute::paintRoute()
   // Collect line text and geometry from the route
   QStringList routeTexts;
   QVector<Line> lines;
+  bool drawAlternate = context->objectDisplayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE);
 
   // Collect route - only coordinates and texts ===============================
   const RouteLeg& destLeg = route->getDestinationAirportLeg();
@@ -155,8 +159,17 @@ void MapPainterRoute::paintRoute()
 
     if(leg.isAlternate())
     {
-      routeTexts.append(buildLegText(leg));
-      lines.append(Line(destLeg.getPosition(), leg.getPosition()));
+      if(drawAlternate)
+      {
+        routeTexts.append(buildLegText(leg));
+        lines.append(Line(destLeg.getPosition(), leg.getPosition()));
+      }
+      else
+      {
+        // Add empty texts to skip drawing
+        routeTexts.append(QString());
+        lines.append(Line());
+      }
     }
     else
     {
@@ -182,32 +195,31 @@ void MapPainterRoute::paintRoute()
     }
   }
 
-  drawRouteInternal(routeTexts, lines, passedRouteLeg);
+  paintRouteInternal(routeTexts, lines, passedRouteLeg);
 
   // Draw procedures ==========================================================================
   if(context->mapLayerEffective->isApproach())
   {
     // Remember last point across procedures to avoid overlaying text
-    proc::MapProcedureLeg lastLegPoint;
     if(!mapPaintWidget->isDistanceCutOff())
     {
       // Draw in reverse flying order to have close legs on top
       const QColor& flightplanProcedureColor = OptionData::instance().getFlightplanProcedureColor();
 
       // Keep de-duplication separate from approach and STAR to avoid lines overlaying symbols
-      QSet<map::MapObjectRef> idMap(routeProcIdMap);
+      QSet<map::MapRef> idMap(routeProcIdMap);
       if(route->hasAnyApproachProcedure())
-        paintProcedure(lastLegPoint, idMap, route->getApproachLegs(), route->getApproachLegsOffset(),
+        paintProcedure(idMap, route->getApproachLegs(), route->getApproachLegsOffset(),
                        flightplanProcedureColor, false /* preview */, false /* previewAll */);
 
       if(route->hasAnyStarProcedure())
-        paintProcedure(lastLegPoint, routeProcIdMap, route->getStarLegs(), route->getStarLegsOffset(),
-                       flightplanProcedureColor, false /* preview */, false /* previewAll */);
+        paintProcedure(routeProcIdMap, route->getStarLegs(), route->getStarLegsOffset(), flightplanProcedureColor,
+                       false /* preview */, false /* previewAll */);
       routeProcIdMap.unite(idMap);
 
       if(route->hasAnySidProcedure())
-        paintProcedure(lastLegPoint, routeProcIdMap, route->getSidLegs(), route->getSidLegsOffset(),
-                       flightplanProcedureColor, false /* preview */, false /* previewAll */);
+        paintProcedure(routeProcIdMap, route->getSidLegs(), route->getSidLegsOffset(), flightplanProcedureColor,
+                       false /* preview */, false /* previewAll */);
 
     }
   }
@@ -217,7 +229,7 @@ void MapPainterRoute::paintRoute()
 
   // Draw highlight for departure parking, start, helipad or airport
   if(context->mapLayerRoute->isRouteTextAndDetail())
-    drawStartParking();
+    paintStartParking();
 
 #ifdef DEBUG_ROUTE_PAINT
   context->painter->save();
@@ -245,16 +257,16 @@ void MapPainterRoute::paintRoute()
 
 }
 
-void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapObjectRef>& idMap)
+void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapRef>& idMap)
 {
   // Margins for text at left (VOR), right (waypoints) and below (NDB)
-  QMargins margins(50, 10, 50, 20);
+  const static QMargins MARGINS(50, 10, 50, 20);
 
   const Route& route = NavApp::getRouteConst();
   for(int i = passedRouteLeg; i < route.size(); i++)
   {
     const RouteLeg& routeLeg = route.value(i);
-    map::MapTypes type = routeLeg.getMapObjectType();
+    map::MapTypes type = routeLeg.getMapType();
     if(type == map::PROCEDURE)
     {
       float x = 0, y = 0;
@@ -271,10 +283,10 @@ void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapObjectRe
           if(!idMap.contains(wp.getRef()))
           {
             idMap.insert(wp.getRef());
-            if(wToSBuf(wp.position, x, y, margins))
+            if(wToSBuf(wp.position, x, y, MARGINS))
             {
               paintWaypoint(x, y, wp, false);
-              paintWaypointText(x, y, wp, true /* drawTextDetails */, nullptr);
+              paintWaypointText(x, y, wp, true /* drawTextDetails */, textatt::ROUTE_BG_COLOR, nullptr);
             }
           }
         }
@@ -287,10 +299,10 @@ void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapObjectRe
           if(!idMap.contains(vor.getRef()))
           {
             idMap.insert(vor.getRef());
-            if(wToSBuf(vor.position, x, y, margins))
+            if(wToSBuf(vor.position, x, y, MARGINS))
             {
               paintVor(x, y, vor, false);
-              paintVorText(x, y, vor, true /* drawTextDetails */, nullptr);
+              paintVorText(x, y, vor, true /* drawTextDetails */, textatt::ROUTE_BG_COLOR, nullptr);
             }
           }
         }
@@ -303,10 +315,10 @@ void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapObjectRe
           if(!idMap.contains(ndb.getRef()))
           {
             idMap.insert(ndb.getRef());
-            if(wToSBuf(ndb.position, x, y, margins))
+            if(wToSBuf(ndb.position, x, y, MARGINS))
             {
               paintNdb(x, y, ndb, false);
-              paintNdbText(x, y, ndb, true /* drawTextDetails */, nullptr);
+              paintNdbText(x, y, ndb, true /* drawTextDetails */, textatt::ROUTE_BG_COLOR, nullptr);
             }
           }
         }
@@ -315,8 +327,10 @@ void MapPainterRoute::paintRecommended(int passedRouteLeg, QSet<map::MapObjectRe
   } // for(int i = passedRouteLeg; i < route.size(); i++)
 }
 
-void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> lines, int passedRouteLeg)
+void MapPainterRoute::paintRouteInternal(QStringList routeTexts, QVector<Line> lines, int passedRouteLeg)
 {
+  const static QMargins MARGINS(100, 100, 100, 100);
+
   const Route *route = context->route;
   Marble::GeoPainter *painter = context->painter;
   const OptionData& od = OptionData::instance();
@@ -349,6 +363,7 @@ void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> li
     bool transparent = context->flags2.testFlag(opts2::MAP_ROUTE_TRANSPARENT);
     float alpha = transparent ? (1.f - context->transparencyFlightplan) : 1.f;
     float lineWidth = transparent ? outerlinewidth : innerlinewidth;
+    bool drawAlternate = context->objectDisplayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE);
 
     const QPen routePen(mapcolors::adjustAlphaF(od.getFlightplanColor(), alpha), lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     const QPen routeOutlinePen(od.getFlightplanOutlineColor(), outerlinewidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
@@ -367,7 +382,7 @@ void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> li
 
       if(!transparent)
       {
-        if(alternateOffset != map::INVALID_INDEX_VALUE)
+        if(alternateOffset != map::INVALID_INDEX_VALUE && drawAlternate)
         {
           painter->setPen(routeAlternateOutlinePen);
           for(int idx = alternateOffset; idx < alternateOffset + route->getNumAlternateLegs(); idx++)
@@ -386,7 +401,7 @@ void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> li
         drawLine(painter, lines.at(i));
 
       // Draw center line for alternates all from destination airport to each alternate
-      if(alternateOffset != map::INVALID_INDEX_VALUE)
+      if(alternateOffset != map::INVALID_INDEX_VALUE && drawAlternate)
       {
         mapcolors::adjustPenForAlternate(painter);
         for(int idx = alternateOffset; idx < alternateOffset + route->getNumAlternateLegs(); idx++)
@@ -446,17 +461,20 @@ void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> li
 
   // ================================================================================
   // Separate text placement object with screen buffer to avoid navaids popping out at screen edges
-  TextPlacement textPlacementBuf(painter, this, context->screenRect.marginsAdded(QMargins(100, 100, 100, 100)));
+  TextPlacement textPlacementBuf(painter, this, context->screenRect.marginsAdded(MARGINS));
   textPlacementBuf.setMinLengthForText(painter->fontMetrics().averageCharWidth() * 2);
   textPlacementBuf.setDrawFast(context->drawFast);
   textPlacementBuf.setLineWidth(outerlinewidth);
   textPlacementBuf.calculateTextPositions(positions);
+  bool drawAlternate = context->objectDisplayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE);
 
   QBitArray visibleStartPointsBuf = textPlacementBuf.getVisibleStartPoints();
   for(int i = 0; i < route->size(); i++)
   {
     // Make all approach points except the last one invisible to avoid text and symbol overlay over approach
-    if(route->value(i).isAnyProcedure())
+    // Also clear hidden alternates
+    const RouteLeg& leg = route->value(i);
+    if(leg.isAnyProcedure() || (leg.isAlternate() && !drawAlternate))
       visibleStartPointsBuf.clearBit(i);
   }
 
@@ -495,17 +513,39 @@ void MapPainterRoute::drawRouteInternal(QStringList routeTexts, QVector<Line> li
   }
 
   if(context->objectDisplayTypes.testFlag(map::WIND_BARBS_ROUTE) && NavApp::getWindReporter()->hasAnyWindData())
-    drawWindBarbs(visibleStartPointsBuf, textPlacementBuf.getStartPoints());
+    paintWindBarbs(visibleStartPointsBuf, textPlacementBuf.getStartPoints());
+}
+
+float MapPainterRoute::sizeForRouteType(const MapLayer *layer, const RouteLeg& leg)
+{
+  map::MapTypes type = leg.getMapType();
+  if(type == map::PROCEDURE)
+  {
+    const MapProcedureLeg& procedureLeg = leg.getProcedureLeg();
+    if(procedureLeg.navaids.hasVor())
+      type = map::VOR;
+    else if(procedureLeg.navaids.hasNdb())
+      type = map::NDB;
+    else if(procedureLeg.navaids.hasWaypoints())
+      type = map::WAYPOINT;
+  }
+
+  if(type == map::AIRPORT)
+    return context->szF(context->symbolSizeAirport, layer->getAirportSymbolSize());
+  else if(type == map::NDB)
+    return context->szF(context->symbolSizeNavaid, layer->getNdbSymbolSize()) * 1.2f;
+  else if(type == map::VOR)
+    return context->szF(context->symbolSizeNavaid, std::max(layer->getVorSymbolSizeRoute(), layer->getVorSymbolSizeLarge()));
+
+  // Use waypoint as fallback
+  return context->szF(context->symbolSizeNavaid, layer->getWaypointSymbolSize());
 }
 
 void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlacement, int passedRouteLeg, bool vor)
 {
+  const static QMargins MARGINS(100, 100, 100, 100); // Avoid pop out at screen borders
   const Route *route = context->route;
   Marble::GeoPainter *painter = context->painter;
-
-  // Get maximum symbol size to avoid overlap with text
-  float symbolSize = std::max(context->szF(context->symbolSizeAirport, context->mapLayerRoute->getAirportSymbolSize()),
-                              context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSize()));
 
   // Collect options
   bool magCourse = context->dOptRoute(optsd::ROUTE_INITIAL_FINAL_MAG_COURSE);
@@ -516,10 +556,9 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
     return;
 
   // Make text a bit smaller
-  context->szFont(context->textSizeFlightplan * 0.9f * context->mapLayerRoute->getRouteFontScale());
+  context->szFont(context->textSizeFlightplan * 0.85f * context->mapLayerRoute->getRouteFontScale());
 
   QFontMetricsF metrics = painter->fontMetrics();
-  QMargins margins(100, 100, 100, 100); // Avoid pop out at screen borders
   float arrowWidth = textPlacement.getArrowWidth(); // Arrows added in text placement
 
   int lastDepartureLeg = route->getLastIndexOfDepartureProcedure();
@@ -542,8 +581,8 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
     // Get first and last positions as well as visibility ============================
     bool firstHidden, lastHidden;
     QPointF first1, last1;
-    bool firstVisible1 = wToSBuf(lastLeg.getPosition(), first1, margins, &firstHidden);
-    bool lastVisible1 = wToSBuf(curLeg.getPosition(), last1, margins, &lastHidden);
+    bool firstVisible1 = wToSBuf(lastLeg.getPosition(), first1, MARGINS, &firstHidden);
+    bool lastVisible1 = wToSBuf(curLeg.getPosition(), last1, MARGINS, &lastHidden);
 
     if(firstHidden || lastHidden)
       // Return if any behind the globe
@@ -568,9 +607,9 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
     Line line(lastLeg.getPosition(), curLeg.getPosition());
     QPointF first2, last2;
     float lengthToMeter = atools::geo::nmToMeter(curLeg.getDistanceTo());
-    float fraction = 1.f * scale->getMeterPerPixel() * 20.f / lengthToMeter; // Calculate fraction for roughly 20 pixels distance
-    wToSBuf(line.interpolate(lengthToMeter, fraction), first2, margins, &firstHidden);
-    wToSBuf(line.interpolate(lengthToMeter, 1.f - fraction), last2, margins, &lastHidden);
+    float fraction = scale->getMeterPerPixel() * 20.f / lengthToMeter; // Calculate fraction for roughly 20 pixels distance
+    wToSBuf(line.interpolate(lengthToMeter, fraction), first2, MARGINS, &firstHidden);
+    wToSBuf(line.interpolate(lengthToMeter, 1.f - fraction), last2, MARGINS, &lastHidden);
 
     if(firstHidden || lastHidden)
       // Return if any behind the globe
@@ -592,14 +631,16 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
     // Check if texts fit along line
     if(outboundTextLength + inboundTextLength < lineLength * (vor ? 0.75 : 0.5))
     {
+      // Get maximum symbol size to avoid overlap with text
       // Outbound from lastLeg navaid  =================================
       if(!outboundText.isEmpty() && vor == lastLeg.isCalibratedVor() && firstVisible1)
       {
+
         // Draw blue if related to VOR
         painter->setPen(lastLeg.isCalibratedVor() ? mapcolors::vorSymbolColor : mapcolors::routeTextColorGray);
 
-        // Move p2 by setting length to get accurate text center
-        outboundTextLine.setLength(outboundTextLength + symbolSize * 1.1);
+        // Move p2 by setting length to get accurate text center - sizeForRouteType is distance to navaid
+        outboundTextLine.setLength(outboundTextLength + sizeForRouteType(context->mapLayerRoute, lastLeg) + 5.);
 
         // Draw texts
         float rotate = static_cast<float>(atools::geo::angleFromQt(outboundTextLine.angle()));
@@ -612,8 +653,8 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
         // Draw blue if related to VOR
         painter->setPen(curLeg.isCalibratedVor() ? mapcolors::vorSymbolColor : mapcolors::routeTextColorGray);
 
-        // Move p2 by setting length to get accurate text center
-        inboundTextLine.setLength(inboundTextLength + symbolSize * 1.1);
+        // Move p2 by setting length to get accurate text center - sizeForRouteType is distance to navaid
+        inboundTextLine.setLength(inboundTextLength + sizeForRouteType(context->mapLayerRoute, curLeg) + 5.);
 
         // Rotate + 180 since line is from end to interpolated end
         float rotate = static_cast<float>(atools::geo::angleFromQt(inboundTextLine.angle() + 180.));
@@ -625,6 +666,8 @@ void MapPainterRoute::paintInboundOutboundTexts(const TextPlacement& textPlaceme
 
 void MapPainterRoute::paintTopOfDescentAndClimb()
 {
+  const static QMargins MARGINS(50, 10, 10, 10);
+  const textatt::TextAttributes TEXT_ATTS = textatt::ROUTE_BG_COLOR | textatt::PLACE_BELOW_RIGHT;
   const Route *route = context->route;
   if(route->getSizeWithoutAlternates() >= 2)
   {
@@ -637,15 +680,10 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
     context->painter->setBrush(Qt::transparent);
     context->szFont(context->textSizeFlightplan * context->mapLayerRoute->getRouteFontScale());
 
-    int transparency = 255;
-    if(!(context->flags2 & opts2::MAP_ROUTE_TEXT_BACKGROUND))
-      transparency = 0;
-
     int activeLegIndex = route->getActiveLegIndex();
 
     // Use margins for text placed on the right side of the object to avoid disappearing at the left screen border
-    QMargins margins(50, 10, 10, 10);
-
+    bool drawTextDetails = context->mapLayerRoute->isApproachText();
     // Draw the top of climb circle and text ======================
     if(!(context->flags2.testFlag(opts2::MAP_ROUTE_DIM_PASSED)) ||
        activeLegIndex == map::INVALID_INDEX_VALUE || route->getTopOfClimbLegIndex() > activeLegIndex - 1)
@@ -654,7 +692,7 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
       if(pos.isValid())
       {
         float x, y;
-        if(wToSBuf(pos, x, y, margins))
+        if(wToSBuf(pos, x, y, MARGINS))
         {
           context->painter->drawEllipse(QPointF(x, y), radius, radius);
 
@@ -663,8 +701,7 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
           if(context->mapLayerRoute->isAirportRouteInfo())
             toc.append(Unit::distNm(route->getTopOfClimbDistance()));
 
-          symbolPainter->textBoxF(context->painter, toc, QPen(mapcolors::routeTextColor),
-                                  x + radius, y + radius, textatt::ROUTE_BG_COLOR, transparency);
+          paintText(mapcolors::routeTextColor, x, y, radius * 2.f, drawTextDetails, toc, TEXT_ATTS);
         }
       }
     }
@@ -677,7 +714,7 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
       if(pos.isValid())
       {
         float x, y;
-        if(wToSBuf(pos, x, y, margins))
+        if(wToSBuf(pos, x, y, MARGINS))
         {
           context->painter->drawEllipse(QPointF(x, y), radius, radius);
 
@@ -686,8 +723,7 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
           if(context->mapLayerRoute->isAirportRouteInfo())
             tod.append(Unit::distNm(route->getTopOfDescentFromDestination()));
 
-          symbolPainter->textBoxF(context->painter, tod, QPen(mapcolors::routeTextColor),
-                                  x + radius, y + radius, textatt::ROUTE_BG_COLOR, transparency);
+          paintText(mapcolors::routeTextColor, x, y, radius * 2.f, drawTextDetails, tod, TEXT_ATTS);
         }
       }
     }
@@ -695,9 +731,8 @@ void MapPainterRoute::paintTopOfDescentAndClimb()
 }
 
 /* Draw approaches and transitions selected in the tree view */
-void MapPainterRoute::paintProcedure(proc::MapProcedureLeg& lastLegPoint, QSet<map::MapObjectRef>& idMap,
-                                     const proc::MapProcedureLegs& legs, int legsRouteOffset, const QColor& color, bool preview,
-                                     bool previewAll)
+void MapPainterRoute::paintProcedure(QSet<map::MapRef>& idMap, const proc::MapProcedureLegs& legs, int legsRouteOffset, const QColor& color,
+                                     bool preview, bool previewAll)
 {
   if(legs.isEmpty() || !legs.bounding.overlaps(context->viewportRect))
     return;
@@ -722,7 +757,7 @@ void MapPainterRoute::paintProcedure(proc::MapProcedureLeg& lastLegPoint, QSet<m
   context->painter->setBrush(Qt::NoBrush);
 
   // Get active approach leg
-  bool activeValid = route->isActiveValid();
+  bool activeValid = route->isActiveValid() && !preview && !previewAll;
   int activeProcLeg = activeValid ? route->getActiveLegIndex() - legsRouteOffset : 0;
   int passedProcLeg = context->flags2.testFlag(opts2::MAP_ROUTE_DIM_PASSED) ? activeProcLeg : 0;
 
@@ -890,7 +925,7 @@ void MapPainterRoute::paintProcedure(proc::MapProcedureLeg& lastLegPoint, QSet<m
       QVector<Line> textLines;
       LineString positions;
 
-      for(const DrawText& dt : drawTextLines)
+      for(const DrawText& dt : qAsConst(drawTextLines))
       {
         textLines.append(dt.line);
         positions.append(dt.line.getPos1());
@@ -917,11 +952,18 @@ void MapPainterRoute::paintProcedure(proc::MapProcedureLeg& lastLegPoint, QSet<m
   }
 
   // Texts and navaid icons ====================================================
+  // Drawn from destination to departure/aircraft
   for(int i = legs.size() - 1; i >= 0; i--)
   {
+    int routeIndex = legsRouteOffset + i;
+    if(preview || previewAll)
+      // No route available for any preview
+      routeIndex = -1;
+
     // No text labels for passed points but always for preview
-    bool drawText = i + 1 >= passedProcLeg || !activeValid || preview;
-    bool drawPoint = i + 1 >= passedProcLeg || !activeValid || preview || previewAll;
+    int diff = 1; // Need to draw one more for overlapping legs
+    bool drawText = i + diff >= passedProcLeg || !activeValid || preview;
+    bool drawPoint = i + diff >= passedProcLeg || !activeValid || preview || previewAll;
 
     if(!context->mapLayerRoute->isApproachText())
       drawText = false;
@@ -942,14 +984,14 @@ void MapPainterRoute::paintProcedure(proc::MapProcedureLeg& lastLegPoint, QSet<m
     }
 
     if(drawPoint)
-      paintProcedurePoint(lastLegPoint, idMap, legs, i, preview, previewAll, drawText);
-  }
+      paintProcedurePoint(idMap, legs, i, routeIndex, preview, previewAll, drawText);
+  } // for(int i = legs.size() - 1; i >= 0; i--)
 }
 
-void MapPainterRoute::paintProcedureSegment(const proc::MapProcedureLegs& legs,
-                                            int index, QVector<QLineF>& lastLines, QVector<DrawText> *drawTextLines,
-                                            bool noText, bool previewAll, bool draw)
+void MapPainterRoute::paintProcedureSegment(const proc::MapProcedureLegs& legs, int index, QVector<QLineF>& lastLines,
+                                            QVector<DrawText> *drawTextLines, bool noText, bool previewAll, bool draw)
 {
+  const static QMargins MARGINS(50, 50, 50, 50);
   const proc::MapProcedureLeg& leg = legs.at(index);
 
   if(previewAll && leg.isMissed())
@@ -1225,7 +1267,7 @@ void MapPainterRoute::paintProcedureSegment(const proc::MapProcedureLegs& legs,
     }
 
     float px, py;
-    wToSBuf(leg.procedureTurnPos, px, py, size, QMargins(50, 50, 50, 50), &hidden);
+    wToSBuf(leg.procedureTurnPos, px, py, size, MARGINS, &hidden);
 
     if(draw && !hidden)
     {
@@ -1245,10 +1287,8 @@ void MapPainterRoute::paintProcedureSegment(const proc::MapProcedureLegs& legs,
   }
 }
 
-void MapPainterRoute::paintProcedureBow(const proc::MapProcedureLeg *prevLeg, QVector<QLineF>& lastLines,
-                                        QPainter *painter,
-                                        QLineF line, const proc::MapProcedureLeg& leg, const QPointF& intersectPoint,
-                                        bool draw)
+void MapPainterRoute::paintProcedureBow(const proc::MapProcedureLeg *prevLeg, QVector<QLineF>& lastLines, QPainter *painter, QLineF line,
+                                        const proc::MapProcedureLeg& leg, const QPointF& intersectPoint, bool draw)
 {
   if(!prevLeg->line.getPos2().isValid() || !leg.line.getPos1().isValid())
     return;
@@ -1432,13 +1472,27 @@ QLineF MapPainterRoute::paintProcedureTurn(QVector<QLineF>& lastLines, QLineF li
   return nextLine;
 }
 
-void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, QSet<map::MapObjectRef>& idMap,
-                                          const proc::MapProcedureLegs& legs, int index, bool preview, bool previewAll, bool drawTextFlag)
+void MapPainterRoute::paintProcedurePoint(QSet<map::MapRef>& idMap, const proc::MapProcedureLegs& legs, int index, int routeIndex,
+                                          bool preview, bool previewAll, bool drawTextFlag)
 {
+  static const QVector<proc::ProcedureLegType> CALCULATED_END_POS_TYPES(
+    {proc::COURSE_TO_ALTITUDE,
+     proc::COURSE_TO_DME_DISTANCE,
+     proc::COURSE_TO_INTERCEPT,
+     proc::COURSE_TO_RADIAL_TERMINATION,
+     // proc::HOLD_TO_FIX, proc::HOLD_TO_MANUAL_TERMINATION, proc::HOLD_TO_ALTITUDE,
+     proc::FIX_TO_ALTITUDE,
+     proc::TRACK_FROM_FIX_TO_DME_DISTANCE,
+     proc::HEADING_TO_ALTITUDE_TERMINATION,
+     proc::HEADING_TO_DME_DISTANCE_TERMINATION,
+     proc::HEADING_TO_INTERCEPT,
+     proc::HEADING_TO_RADIAL_TERMINATION,
+     proc::TRACK_FROM_FIX_FROM_DISTANCE,
+     proc::FROM_FIX_TO_MANUAL_TERMINATION,
+     proc::HEADING_TO_MANUAL_TERMINATION});
+  const static QMargins MARGINS(50, 10, 50, 20);
+
   const proc::MapProcedureLeg& leg = legs.at(index);
-  bool drawText = context->mapLayerRoute->isApproachText() && drawTextFlag;
-  bool drawTextDetails = !previewAll && drawTextFlag && context->mapLayerRoute->isApproachTextDetails();
-  bool drawUnderlay = drawText && !previewAll && context->mapLayerRoute->isApproachDetail();
 
   // Debugging code for drawing ================================================
 #ifdef DEBUG_APPROACH_PAINT
@@ -1455,9 +1509,7 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
     QPainter *painter = context->painter;
 
     if(leg.disabled)
-    {
       painter->setPen(Qt::red);
-    }
 
     QPointF intersectPoint = wToS(leg.interceptPos, DEFAULT_WTOS_SIZE, &hiddenDummy);
 
@@ -1465,11 +1517,11 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
     painter->setPen(QPen(Qt::blue, 3.));
     painter->drawEllipse(line.p1(), 20, 10);
     painter->drawEllipse(line.p2(), 10, 20);
-    painter->drawText(line.x1() - 60, line.y1() + (index % 3) * 10,
-                      "Start " + proc::procedureLegTypeShortStr(leg.type) + " " + QString::number(index));
+    painter->drawText(line.x1() - 60, line.y1() + (index % 3) * 10, "Start " + proc::procedureLegTypeShortStr(
+                        leg.type) + " " + QString::number(index));
 
-    painter->drawText(line.x2() - 60, line.y2() + (index % 3) * 10 + 20,
-                      "End " + proc::procedureLegTypeShortStr(leg.type) + " " + QString::number(index));
+    painter->drawText(line.x2() - 60, line.y2() + (index % 3) * 10 + 20, "End " + proc::procedureLegTypeShortStr(
+                        leg.type) + " " + QString::number(index));
     if(!intersectPoint.isNull())
     {
       painter->drawEllipse(intersectPoint, 30, 30);
@@ -1510,7 +1562,9 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
   if(leg.disabled)
     return;
 
-  float defaultOverflySize = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
+  bool drawText = context->mapLayerRoute->isApproachText() && drawTextFlag;
+  bool drawTextDetails = !previewAll && drawTextFlag && context->mapLayerRoute->isApproachTextDetails();
+  bool drawUnderlay = drawText && !previewAll && context->mapLayerRoute->isApproachDetail();
 
   proc::MapAltRestriction altRestr(leg.altRestriction);
   proc::MapSpeedRestriction speedRestr(leg.speedRestriction);
@@ -1531,37 +1585,49 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
     speedRestr = proc::MapSpeedRestriction();
   }
 
-  QStringList texts;
-  // if(index > 0 && legs.isApproach(index) &&
-  // legs.isTransition(index - 1) && context->objectTypes & proctypes::APPROACH &&
-  // context->objectTypes & proctypes::APPROACH_TRANSITION)
-  //// Merge display text to get any text from a preceding transition point
-  // texts.append(legs.at(index - 1).displayText);
+  // Get text placement sector based on inbound and outbound leg courses
+  textatt::TextAttributes textPlacementAtts = textatt::ROUTE_BG_COLOR;
+  if(!preview && !previewAll)
+    textPlacementAtts = textPlacementAttributes(routeIndex);
+
+  QStringList texts, restrTexts;
+#ifdef DEBUG_INFORMATION_PROCEDURE_INDEX
+  texts.append(QString("#%1 ").arg(index + legsRouteOffset));
+#endif
 
   float x = 0, y = 0;
 
   // Margins for text at left (VOR), right (waypoints) and below (NDB)
-  QMargins margins(50, 10, 50, 20);
+  float defaultOverflySize = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
   if(leg.mapType == proc::PROCEDURE_SID && index == 0)
   {
     // All legs with a calculated end point - runway =====================
-    if(wToSBuf(leg.line.getPos1(), x, y, margins))
+    if(wToSBuf(leg.line.getPos1(), x, y, MARGINS))
     {
       texts.append("RW" % legs.runwayEnd.name);
 
-      proc::MapAltRestriction altRestriction;
-      altRestriction.descriptor = proc::MapAltRestriction::AT;
-      altRestriction.alt1 = legs.runwayEnd.getAltitude();
-      altRestriction.alt2 = 0.f;
-      texts.append(proc::altRestrictionTextNarrow(altRestriction));
+      if(drawText)
+      {
+        proc::MapAltRestriction altRestriction;
+        altRestriction.descriptor = proc::MapAltRestriction::AT;
+        altRestriction.alt1 = legs.runwayEnd.getAltitude();
+        altRestriction.alt2 = 0.f;
+        restrTexts.append(proc::altRestrictionTextNarrow(altRestriction));
+      }
 
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, defaultOverflySize);
       paintProcedurePoint(x, y, false /* preview */);
       if(drawText)
-        paintProcedurePointText(x, y, drawTextDetails, texts);
-      texts.clear();
+      {
+        texts.append(restrTexts);
+        paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
+        restrTexts.clear();
+        texts.clear();
+      }
     }
+
+    // =================================
     return;
   }
 
@@ -1584,33 +1650,42 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
                          proc::HEADING_TO_MANUAL_TERMINATION}))
   {
     if(lastInTransition)
+      // =================================
       return;
 
     // All legs with a calculated end point
-    if(wToSBuf(leg.line.getPos2(), x, y, margins))
+    if(wToSBuf(leg.line.getPos2(), x, y, MARGINS))
     {
-      texts.append(leg.displayText);
-      texts.append(proc::altRestrictionTextNarrow(altRestr));
-      texts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      if(drawText)
+      {
+        texts.append(leg.displayText);
+        restrTexts.append(proc::altRestrictionTextNarrow(altRestr));
+        restrTexts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      }
 
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, defaultOverflySize);
       paintProcedurePoint(x, y, false);
+
       if(drawText)
-        paintProcedurePointText(x, y, drawTextDetails, texts);
-      texts.clear();
+      {
+        texts.append(restrTexts);
+        paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
+        restrTexts.clear();
+        texts.clear();
+      }
     }
   }
   else if(leg.type == proc::START_OF_PROCEDURE)
   {
-    if(wToSBuf(leg.line.getPos1(), x, y, margins))
+    if(wToSBuf(leg.line.getPos1(), x, y, MARGINS))
       paintProcedurePoint(x, y, false);
   }
   else if(leg.type == proc::COURSE_TO_FIX || leg.type == proc::CUSTOM_APP_RUNWAY || leg.type == proc::CUSTOM_DEP_END)
   {
     if(index == 0)
     {
-      if(wToSBuf(leg.line.getPos1(), x, y, margins))
+      if(wToSBuf(leg.line.getPos1(), x, y, MARGINS))
       {
         if(drawUnderlay)
           paintProcedureUnderlay(leg, x, y, defaultOverflySize);
@@ -1619,168 +1694,175 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
     }
     else if(leg.interceptPos.isValid())
     {
-      if(wToSBuf(leg.interceptPos, x, y, margins))
+      if(wToSBuf(leg.interceptPos, x, y, MARGINS))
       {
         // Draw intercept comment - no altitude restriction and no underlay there
         texts.append(leg.displayText);
 
         paintProcedurePoint(x, y, false);
         if(drawText)
-          paintProcedurePointText(x, y, drawTextDetails, texts);
+          paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
       }
 
       // Clear text from "intercept" and add restrictions
-      texts.clear();
-      texts.append(proc::altRestrictionTextNarrow(altRestr));
-      texts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      if(drawText)
+      {
+        texts.clear();
+        restrTexts.clear();
+        restrTexts.append(proc::altRestrictionTextNarrow(altRestr));
+        restrTexts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      }
     }
     else
     {
       if(lastInTransition)
+        // =========================================================
         return;
 
-      texts.append(leg.displayText);
-      texts.append(proc::altRestrictionTextNarrow(altRestr));
-      texts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      if(drawText)
+      {
+        texts.append(leg.displayText);
+        restrTexts.append(proc::altRestrictionTextNarrow(altRestr));
+        restrTexts.append(proc::speedRestrictionTextNarrow(speedRestr));
+      }
     }
   }
   else
   {
     if(lastInTransition)
+      // =========================================================
       return;
 
     texts.append(leg.displayText);
-    texts.append(proc::altRestrictionTextNarrow(altRestr));
-    texts.append(proc::speedRestrictionTextNarrow(speedRestr));
-  }
-
-  // Merge restrictions between overlapping fixes across different procedures
-  if(lastLegPoint.isValid() && lastLegPoint.fixPos.almostEqual(leg.fixPos) &&
-     lastLegPoint.fixIdent == leg.fixIdent && lastLegPoint.fixRegion == leg.fixRegion &&
-     // Do not merge text from legs which are labeled at calculated end position
-     !contains(lastLegPoint.type, {proc::COURSE_TO_ALTITUDE,
-                                   proc::COURSE_TO_DME_DISTANCE,
-                                   proc::COURSE_TO_INTERCEPT,
-                                   proc::COURSE_TO_RADIAL_TERMINATION,
-                                   // proc::HOLD_TO_FIX,
-                                   // proc::HOLD_TO_MANUAL_TERMINATION,
-                                   // proc::HOLD_TO_ALTITUDE,
-                                   proc::FIX_TO_ALTITUDE,
-                                   proc::TRACK_FROM_FIX_TO_DME_DISTANCE,
-                                   proc::HEADING_TO_ALTITUDE_TERMINATION,
-                                   proc::HEADING_TO_DME_DISTANCE_TERMINATION,
-                                   proc::HEADING_TO_INTERCEPT,
-                                   proc::HEADING_TO_RADIAL_TERMINATION,
-                                   proc::TRACK_FROM_FIX_FROM_DISTANCE,
-                                   proc::FROM_FIX_TO_MANUAL_TERMINATION,
-                                   proc::HEADING_TO_MANUAL_TERMINATION}))
-  {
-    // Add restrictions from last point to text
-    texts.append(proc::altRestrictionTextNarrow(lastLegPoint.altRestriction));
-    texts.append(proc::speedRestrictionTextNarrow(lastLegPoint.speedRestriction));
-  }
-
-  // Merge texts between approach and transition fixes ========================================
-  if(index > 0)
-  {
-    const proc::MapProcedureLeg& nextLeg = legs.at(index - 1);
-
-    bool approachToTrans = nextLeg.isTransition() && leg.isApproach();
-
-    if(approachToTrans && nextLeg.fixPos.almostEqual(leg.fixPos) &&
-       nextLeg.fixIdent == leg.fixIdent && nextLeg.fixRegion == leg.fixRegion)
+    if(drawText)
     {
-      // Merge restriction texts from last transition and this approach leg
-      texts.append(proc::altRestrictionTextNarrow(nextLeg.altRestriction));
-      texts.append(proc::speedRestrictionTextNarrow(nextLeg.speedRestriction));
+      restrTexts.append(proc::altRestrictionTextNarrow(altRestr));
+      restrTexts.append(proc::speedRestrictionTextNarrow(speedRestr));
     }
   }
 
+  // Merge restriction texts only for flight plan - not for previews
+  if(drawText && routeIndex != -1)
+  {
+    // Loop moves from prevLeg to leg to nextLeg to destination
+    // Legs are drawn reversed from route.size() (destination) to 0 (departure)
+    // +1 is closer to the destination
+    // Loop moves from prevLeg to leg to nextLeg to destination
+    const proc::MapProcedureLeg& prevLeg = context->route->value(routeIndex - 1).getProcedureLeg();
+
+    // Merge texts between approach and transition fixes ========================================
+    if(prevLeg.isAlmostEqual(leg) && prevLeg.isTransition() && leg.isApproach())
+    {
+      // Merge restriction texts from last transition and this approach leg
+      // Transition point is never drawn since method returns above
+      restrTexts.append(proc::altRestrictionTextNarrow(prevLeg.altRestriction));
+      restrTexts.append(proc::speedRestrictionTextNarrow(prevLeg.speedRestriction));
+    }
+    else
+    {
+      // Kittila (EFKT) Arrive using STAR EVIM2A and ILS-Z BENUG
+      // Index moving in direction ^
+      // . 0      ^ EFKE;Departure
+      // . 1      ^ OLNOP
+      // . 2      ^ EVIMI;STAR EVIM2A;Initial fix;A 10.000
+      // . 3 prev ^ XIVPA;STAR EVIM2A;Track to fix;A 3.800                  >>>>>>>>>> OMIT
+      // . 4 leg  ^ XIVPA (IAF);Approach ILS-Z BENUG;Initial fix;GS 2.500   >>>>>>>>>> DRAW
+      // . 5 next ^ BENUG (FAF);Approach ILS-Z BENUG;Course to fix;A 2.500
+      // . 6      ^ RW34 (MAP);Approach ILS-Z BENUG;Course to fix;703
+
+      // Merge restriction label texts when transitioning from SID to approach transition, for example
+      if(leg.isAlmostEqual(prevLeg) && !contains(prevLeg.type, CALCULATED_END_POS_TYPES))
+      {
+        // Add restrictions from last point to text
+        restrTexts.append(proc::altRestrictionTextNarrow(prevLeg.altRestriction));
+        restrTexts.append(proc::speedRestrictionTextNarrow(prevLeg.speedRestriction));
+      }
+
+      // Omit drawing of double labels when transitioning from SID to approach transition, for example
+      const proc::MapProcedureLeg& nextLeg = context->route->value(routeIndex + 1).getProcedureLeg();
+      if(nextLeg.isAlmostEqual(leg) && !contains(nextLeg.type, CALCULATED_END_POS_TYPES))
+        // Draw symbol but not labels
+        drawText = false;
+    }
+  }
+
+  // Add restriction texts to additional texts beside navaids
+  texts.append(restrTexts);
+
   // Remove duplicates and empty strings
-  texts.removeDuplicates();
   texts.removeAll(QString());
+  texts.removeDuplicates();
 
   const map::MapResult& navaids = leg.navaids;
   float symbolSizeWaypoint = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
 
-  if(!navaids.waypoints.isEmpty() && wToSBuf(navaids.waypoints.constFirst().position, x, y, margins))
+  if(!navaids.waypoints.isEmpty() && wToSBuf(navaids.waypoints.constFirst().position, x, y, MARGINS))
   {
-
     const map::MapWaypoint& wp = navaids.waypoints.constFirst();
     if(!idMap.contains(wp.getRef()))
     {
       idMap.insert(wp.getRef());
-
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, symbolSizeWaypoint);
-
       paintWaypoint(x, y, wp, false);
-
       if(drawText)
-        paintWaypointText(x, y, wp, drawTextDetails, &texts);
+        paintWaypointText(x, y, wp, drawTextDetails, textPlacementAtts, &texts);
     }
   }
-  else if(!navaids.vors.isEmpty() && wToSBuf(navaids.vors.constFirst().position, x, y, margins))
+  else if(!navaids.vors.isEmpty() && wToSBuf(navaids.vors.constFirst().position, x, y, MARGINS))
   {
 
     const map::MapVor& vor = navaids.vors.constFirst();
     if(!idMap.contains(vor.getRef()))
     {
       idMap.insert(vor.getRef());
-
       float symbolSizeVor = context->sz(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSize());
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, symbolSizeVor);
-
       paintVor(x, y, vor, false);
-
       if(drawText)
-        paintVorText(x, y, vor, drawTextDetails, &texts);
+        paintVorText(x, y, vor, drawTextDetails, textPlacementAtts, &texts);
     }
   }
-  else if(!navaids.ndbs.isEmpty() && wToSBuf(navaids.ndbs.constFirst().position, x, y, margins))
+  else if(!navaids.ndbs.isEmpty() && wToSBuf(navaids.ndbs.constFirst().position, x, y, MARGINS))
   {
 
     const map::MapNdb& ndb = navaids.ndbs.constFirst();
     if(!idMap.contains(ndb.getRef()))
     {
       idMap.insert(ndb.getRef());
-
       float symbolSizeNdb = context->sz(context->symbolSizeNavaid, context->mapLayerRoute->getNdbSymbolSize());
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, symbolSizeNdb);
-
       paintNdb(x, y, ndb, false);
-
       if(drawText)
-        paintNdbText(x, y, ndb, drawTextDetails, &texts);
+        paintNdbText(x, y, ndb, drawTextDetails, textPlacementAtts, &texts);
     }
   }
-  else if(!navaids.ils.isEmpty() && wToSBuf(navaids.ils.constFirst().position, x, y, margins))
+  else if(!navaids.ils.isEmpty() && wToSBuf(navaids.ils.constFirst().position, x, y, MARGINS))
   {
     const map::MapIls& ils = navaids.ils.constFirst();
     if(!idMap.contains(ils.getRef()))
     {
       idMap.insert(ils.getRef());
-
       texts.append(leg.fixIdent);
       if(drawUnderlay)
         paintProcedureUnderlay(leg, x, y, symbolSizeWaypoint);
       paintProcedurePoint(x, y, false);
     }
     if(drawText)
-      paintProcedurePointText(x, y, drawTextDetails, texts);
+      paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
   }
-  else if(!navaids.runwayEnds.isEmpty() && wToSBuf(navaids.runwayEnds.constFirst().position, x, y, margins))
+  else if(!navaids.runwayEnds.isEmpty() && wToSBuf(navaids.runwayEnds.constFirst().position, x, y, MARGINS))
   {
     texts.prepend(leg.fixIdent);
     if(drawUnderlay)
       paintProcedureUnderlay(leg, x, y, symbolSizeWaypoint);
     paintProcedurePoint(x, y, false);
     if(drawText)
-      paintProcedurePointText(x, y, drawTextDetails, texts);
+      paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
   }
-  else if(!leg.fixIdent.isEmpty() && wToSBuf(leg.fixPos, x, y, margins))
+  else if(!leg.fixIdent.isEmpty() && wToSBuf(leg.fixPos, x, y, MARGINS))
   {
     // Custom IF case
     texts.prepend(leg.fixIdent);
@@ -1788,13 +1870,8 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
       paintProcedureUnderlay(leg, x, y, symbolSizeWaypoint);
     paintProcedurePoint(x, y, false);
     if(drawText)
-      paintProcedurePointText(x, y, drawTextDetails, texts);
+      paintProcedurePointText(x, y, drawTextDetails, textPlacementAtts, texts);
   }
-
-  // Draw left aligned texts like intercept or manual =====================================
-  // if(!texts.isEmpty() && drawTextDetail)
-  // paintText(mapcolors::routeProcedurePointColor, x - symbolSize * 3 / 2, y, texts,
-  // true /* draw as route */, textatt::RIGHT);
 
   // Draw wind barbs for SID and STAR (not approaches) =======================================
   const Route *route = context->route;
@@ -1813,12 +1890,9 @@ void MapPainterRoute::paintProcedurePoint(proc::MapProcedureLeg& lastLegPoint, Q
       // Do not draw wind barbs for approaches
       const RouteAltitudeLeg& altLeg = route->getAltitudeLegAt(routeIdx);
       if(altLeg.getLineString().getPos2().getAltitude() > map::MIN_WIND_BARB_ALTITUDE)
-        drawWindBarbAtWaypoint(altLeg.getWindSpeed(), altLeg.getWindDirection(), x, y);
+        paintWindBarbAtWaypoint(altLeg.getWindSpeed(), altLeg.getWindDirection(), x, y);
     }
   }
-
-  // Remember last painted leg for next procedure painter
-  lastLegPoint = leg;
 }
 
 void MapPainterRoute::paintAirport(float x, float y, const map::MapAirport& obj)
@@ -1829,13 +1903,13 @@ void MapPainterRoute::paintAirport(float x, float y, const map::MapAirport& obj)
                                    context->flags2.testFlag(opts2::MAP_AIRPORT_HIGHLIGHT_ADDON));
 }
 
-void MapPainterRoute::paintAirportText(float x, float y, const map::MapAirport& obj)
+void MapPainterRoute::paintAirportText(float x, float y, const map::MapAirport& obj, textatt::TextAttributes atts)
 {
   float size = context->szF(context->symbolSizeAirport, context->mapLayerRoute->getAirportSymbolSize());
   symbolPainter->drawAirportText(context->painter, obj, x, y, context->dispOptsAirport,
                                  context->airportTextFlagsRoute(true /* drawAsRoute */, false /* draw as log */), size,
                                  context->mapLayerRoute->isAirportDiagram(),
-                                 context->mapLayerRoute->getMaxTextLengthAirport());
+                                 context->mapLayerRoute->getMaxTextLengthAirport(), atts);
 }
 
 void MapPainterRoute::paintWaypoint(float x, float y, const map::MapWaypoint& obj, bool preview)
@@ -1853,7 +1927,7 @@ void MapPainterRoute::paintWaypoint(const QColor& col, float x, float y, bool pr
 }
 
 void MapPainterRoute::paintWaypointText(float x, float y, const map::MapWaypoint& obj, bool drawTextDetails,
-                                        const QStringList *additionalText)
+                                        textatt::TextAttributes atts, const QStringList *additionalText)
 {
   float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
   textflags::TextFlags flags = textflags::ROUTE_TEXT;
@@ -1872,18 +1946,19 @@ void MapPainterRoute::paintWaypointText(float x, float y, const map::MapWaypoint
     fill = false;
   }
 
-  symbolPainter->drawWaypointText(context->painter, obj, x, y, flags, size, fill, additionalText);
+  symbolPainter->drawWaypointText(context->painter, obj, x, y, flags, size, fill, atts, additionalText);
 }
 
 void MapPainterRoute::paintVor(float x, float y, const map::MapVor& obj, bool preview)
 {
   context->routeDrawnNavaids->append(obj.getRef());
-  float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSize());
-  size = std::max(size, 8.f);
-  symbolPainter->drawVorSymbol(context->painter, obj, x, y, size, !preview, false, context->mapLayerRoute->isVorLarge());
+  float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSizeRoute());
+  float sizeLarge = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSizeLarge());
+  symbolPainter->drawVorSymbol(context->painter, obj, x, y, size, sizeLarge, !preview, false /* fast */);
 }
 
-void MapPainterRoute::paintVorText(float x, float y, const map::MapVor& obj, bool drawTextDetails, const QStringList *additionalText)
+void MapPainterRoute::paintVorText(float x, float y, const map::MapVor& obj, bool drawTextDetails, textatt::TextAttributes atts,
+                                   const QStringList *additionalText)
 {
   float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getVorSymbolSize());
   textflags::TextFlags flags = textflags::ROUTE_TEXT;
@@ -1906,7 +1981,7 @@ void MapPainterRoute::paintVorText(float x, float y, const map::MapVor& obj, boo
     fill = false;
   }
 
-  symbolPainter->drawVorText(context->painter, obj, x, y, flags, size, fill, additionalText);
+  symbolPainter->drawVorText(context->painter, obj, x, y, flags, size, fill, atts, additionalText);
 }
 
 void MapPainterRoute::paintNdb(float x, float y, const map::MapNdb& obj, bool preview)
@@ -1917,7 +1992,8 @@ void MapPainterRoute::paintNdb(float x, float y, const map::MapNdb& obj, bool pr
   symbolPainter->drawNdbSymbol(context->painter, x, y, size, !preview, false);
 }
 
-void MapPainterRoute::paintNdbText(float x, float y, const map::MapNdb& obj, bool drawTextDetails, const QStringList *additionalText)
+void MapPainterRoute::paintNdbText(float x, float y, const map::MapNdb& obj, bool drawTextDetails, textatt::TextAttributes atts,
+                                   const QStringList *additionalText)
 {
   float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getNdbSymbolSize());
   textflags::TextFlags flags = textflags::ROUTE_TEXT;
@@ -1940,7 +2016,7 @@ void MapPainterRoute::paintNdbText(float x, float y, const map::MapNdb& obj, boo
     fill = false;
   }
 
-  symbolPainter->drawNdbText(context->painter, obj, x, y, flags, size, fill, additionalText);
+  symbolPainter->drawNdbText(context->painter, obj, x, y, flags, size * 1.5f, fill, atts, additionalText);
 }
 
 /* paint intermediate approach point */
@@ -1950,11 +2026,12 @@ void MapPainterRoute::paintProcedurePoint(float x, float y, bool preview)
   symbolPainter->drawProcedureSymbol(context->painter, x, y, size, !preview);
 }
 
-void MapPainterRoute::paintProcedurePointText(float x, float y, bool drawTextDetails, const QStringList& texts)
+void MapPainterRoute::paintProcedurePointText(float x, float y, bool drawTextDetails, textatt::TextAttributes atts,
+                                              const QStringList& texts)
 {
   float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getProcedurePointSymbolSize());
   float lineWidth = std::max(size / 5.f, 2.0f);
-  paintText(mapcolors::routeProcedurePointColor, x + lineWidth + 2.f, y, drawTextDetails, texts);
+  paintText(mapcolors::routeProcedurePointColor, x + lineWidth + 2.f, y, size * 1.5f, drawTextDetails, texts, atts);
 }
 
 void MapPainterRoute::paintProcedureUnderlay(const proc::MapProcedureLeg& leg, float x, float y, float size)
@@ -1964,7 +2041,6 @@ void MapPainterRoute::paintProcedureUnderlay(const proc::MapProcedureLeg& leg, f
   symbolPainter->drawProcedureUnderlay(context->painter, x, y, size, leg.flyover, leg.malteseCross);
 }
 
-/* Paint user defined waypoint */
 void MapPainterRoute::paintUserpoint(float x, float y, const map::MapUserpointRoute& obj, bool preview)
 {
   context->routeDrawnNavaids->append(obj.getRef());
@@ -1973,16 +2049,14 @@ void MapPainterRoute::paintUserpoint(float x, float y, const map::MapUserpointRo
   symbolPainter->drawUserpointSymbol(context->painter, x, y, size, !preview);
 }
 
-/* Draw text with light yellow background for flight plan */
-void MapPainterRoute::paintText(const QColor& color, float x, float y, bool drawTextDetails, QStringList texts,
+void MapPainterRoute::paintText(const QColor& color, float x, float y, float size, bool drawTextDetails, QStringList texts,
                                 textatt::TextAttributes atts)
 {
-  float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
-
   texts.removeDuplicates();
   texts.removeAll(QString());
 
-  atts |= textatt::ROUTE_BG_COLOR;
+  // Move position according to text placement
+  symbolPainter->adjustPos(x, y, size, atts);
 
   if(!drawTextDetails)
   {
@@ -2002,7 +2076,7 @@ void MapPainterRoute::paintText(const QColor& color, float x, float y, bool draw
     transparency = 0;
 
   if(!texts.isEmpty() && context->mapLayerRoute->isWaypointRouteName())
-    symbolPainter->textBoxF(context->painter, texts, color, x + size / 2.f + 2.f, y, atts, transparency);
+    symbolPainter->textBoxF(context->painter, texts, color, x, y, atts, transparency);
 }
 
 void MapPainterRoute::drawSymbols(const QBitArray& visibleStartPoints, const QList<QPointF>& startPoints, bool preview)
@@ -2015,7 +2089,8 @@ void MapPainterRoute::drawSymbols(const QBitArray& visibleStartPoints, const QLi
       float x = static_cast<float>(pt.x());
       float y = static_cast<float>(pt.y());
       const RouteLeg& leg = context->route->value(i);
-      map::MapTypes type = leg.getMapObjectType();
+      map::MapTypes type = leg.getMapType();
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wswitch"
       switch(type)
@@ -2024,18 +2099,23 @@ void MapPainterRoute::drawSymbols(const QBitArray& visibleStartPoints, const QLi
           // name and region not found in database
           paintWaypoint(mapcolors::routeInvalidPointColor, x, y, preview);
           break;
+
         case map::USERPOINTROUTE:
           paintUserpoint(x, y, leg.getUserpointRoute(), preview);
           break;
+
         case map::AIRPORT:
           paintAirport(x, y, leg.getAirport());
           break;
+
         case map::VOR:
           paintVor(x, y, leg.getVor(), preview);
           break;
+
         case map::NDB:
           paintNdb(x, y, leg.getNdb(), preview);
           break;
+
         case map::WAYPOINT:
           paintWaypoint(x, y, leg.getWaypoint(), preview);
           break;
@@ -2046,7 +2126,7 @@ void MapPainterRoute::drawSymbols(const QBitArray& visibleStartPoints, const QLi
   }
 }
 
-void MapPainterRoute::drawWindBarbs(const QBitArray& visibleStartPoints, const QList<QPointF>& startPoints)
+void MapPainterRoute::paintWindBarbs(const QBitArray& visibleStartPoints, const QList<QPointF>& startPoints)
 {
   const Route *route = context->route;
 
@@ -2069,7 +2149,7 @@ void MapPainterRoute::drawWindBarbs(const QBitArray& visibleStartPoints, const Q
          !altLeg.isAlternate() && distOk &&
          routeIndex > route->getDepartureAirportLegIndex() && routeIndex < route->getDestinationAirportLegIndex())
       {
-        drawWindBarbAtWaypoint(altLeg.getWindSpeed(), altLeg.getWindDirection(), static_cast<float>(pt.x()), static_cast<float>(pt.y()));
+        paintWindBarbAtWaypoint(altLeg.getWindSpeed(), altLeg.getWindDirection(), static_cast<float>(pt.x()), static_cast<float>(pt.y()));
         lastPt = pt;
       }
     }
@@ -2077,40 +2157,166 @@ void MapPainterRoute::drawWindBarbs(const QBitArray& visibleStartPoints, const Q
   }
 }
 
+textatt::TextAttributes MapPainterRoute::textPlacementAttributes(int routeIndex)
+{
+  if(routeIndex == -1)
+    return textatt::PLACE_LEFT;
+
+  const Route *route = context->route;
+  const RouteLeg *curLeg = &route->value(routeIndex);
+  int nextIndex = routeIndex + 1;
+  const RouteLeg *nextLeg = nextIndex < route->size() ? &route->value(nextIndex) : nullptr;
+
+  float courseEndTrue = map::INVALID_COURSE_VALUE, courseStartTrue = map::INVALID_COURSE_VALUE;
+
+  // Get course to the endpoint of the current leg
+  courseEndTrue = curLeg->getGeometryEndCourse();
+
+  // Do not look further if this is an alternate airport
+  if(!curLeg->isAlternate())
+  {
+    // Try to skip initial fix and other legs without geometry or course
+    if(!(courseEndTrue < map::INVALID_COURSE_VALUE) && !curLeg->isAlternate())
+    {
+      if(routeIndex > 0)
+      {
+        curLeg = &route->value(routeIndex - 1);
+        courseEndTrue = curLeg->getGeometryEndCourse();
+      }
+    }
+
+    // Get outbound course for the waypoint at the end of this leg
+    if(nextLeg != nullptr)
+      courseStartTrue = nextLeg->getGeometryStartCourse();
+
+    if(!(courseStartTrue < map::INVALID_COURSE_VALUE))
+    {
+      // Skip initial fix or others without course or geometry
+      if(nextIndex < route->size() - 1)
+      {
+        nextLeg = &route->value(nextIndex + 1);
+        courseStartTrue = nextLeg->getGeometryStartCourse();
+      }
+    }
+  }
+
+  // Angle pointing towards text label - e.g. 270 puts the label to the left of the point
+  float textAngle = 0.f;
+  if(courseStartTrue < map::INVALID_COURSE_VALUE && courseEndTrue < map::INVALID_COURSE_VALUE)
+  {
+    // Reverse inbound to outbound
+    courseEndTrue = atools::geo::opposedCourseDeg(courseEndTrue);
+
+    // Calculate difference in degrees
+    float diff = atools::geo::angleAbsDiffSign(courseEndTrue, courseStartTrue);
+
+    // Pos Turn right
+    // positive if angle1 < angle2 and negative if angle1 > angle2
+    if(diff > 0.f)
+      // courseEndTrue < courseStartTrue
+      textAngle = atools::geo::opposedCourseDeg(courseEndTrue + std::abs(diff) / 2.f);
+    else
+      // courseEndTrue > courseStartTrue
+      textAngle = atools::geo::opposedCourseDeg(courseStartTrue + std::abs(diff) / 2.f);
+  }
+  // Next two cases appear at end of lines like runways or alternates
+  else if(courseStartTrue < map::INVALID_COURSE_VALUE)
+    textAngle = atools::geo::opposedCourseDeg(courseStartTrue);
+  else if(courseEndTrue < map::INVALID_COURSE_VALUE)
+    textAngle = courseEndTrue;
+
+#ifdef DEBUG_INFORMATION_TEXT_PLACEMENT
+  qDebug() << Q_FUNC_INFO << "====" << "textAngle" << textAngle;
+  qDebug() << Q_FUNC_INFO << "CUR" << curIndex << proc::procedureTypeText(curLeg->getProcedureType())
+           << curLeg->getIdent() << courseEndTrue << "geo" << curLeg->getGeometry();
+  qDebug() << Q_FUNC_INFO << "NEXT" << nextIndex << proc::procedureTypeText(nextLeg->getProcedureType())
+           << nextLeg->getIdent() << courseStartTrue << "geo" << nextLeg->getGeometry();
+#endif
+
+  textatt::TextAttributes att;
+  // 45 degree steps with sectors moving from 22.5°
+  if(textAngle < 22.5f)
+    att = textatt::PLACE_ABOVE;
+  else if(textAngle < 67.5f)
+    att = textatt::PLACE_ABOVE_RIGHT;
+  else if(textAngle < 112.5f)
+    att = textatt::PLACE_RIGHT;
+  else if(textAngle < 157.5f)
+    att = textatt::PLACE_BELOW_RIGHT;
+  else if(textAngle < 202.5f)
+    att = textatt::PLACE_BELOW;
+  else if(textAngle < 247.5f)
+    att = textatt::PLACE_BELOW_LEFT;
+  else if(textAngle < 292.5f)
+    att = textatt::PLACE_LEFT;
+  else if(textAngle < 337.5f)
+    att = textatt::PLACE_ABOVE_LEFT;
+  else if(textAngle < 360.f)
+    att = textatt::PLACE_ABOVE;
+  else
+    att = textatt::PLACE_LEFT;
+
+  return att | textatt::ROUTE_BG_COLOR;
+}
+
 void MapPainterRoute::drawRouteSymbolText(const QBitArray& visibleStartPoints, const QList<QPointF>& startPoints)
 {
-  int i = 0;
-  for(const QPointF& pt : startPoints)
+  const Route *route = context->route;
+  for(int i = 0; i < startPoints.size(); i++)
   {
     if(visibleStartPoints.testBit(i))
     {
-      float x = static_cast<float>(pt.x());
-      float y = static_cast<float>(pt.y());
-      const RouteLeg& obj = context->route->value(i);
-      map::MapTypes type = obj.getMapObjectType();
+      const QPointF& startPt(startPoints.at(i));
+      float x = static_cast<float>(startPt.x());
+      float y = static_cast<float>(startPt.y());
+      const RouteLeg& curLeg = route->value(i);
+
+      textatt::TextAttributes textPlacementAtts = textPlacementAttributes(i);
+
+#ifdef DEBUG_INFORMATION_ROUTE_TEXT
+      {
+        atools::util::PainterContextSaver saver(context->painter);
+        QLineF line(startPt, startPt - QPointF(0, 50));
+        line.setAngle(atools::geo::angleToQt(textAngle));
+        context->painter->setPen(QPen());
+        context->painter->drawLine(line);
+      }
+
+      qDebug() << Q_FUNC_INFO << curLeg.getIdent() << "courseEndTrue" << courseEndTrue << "courseStartTrue" << courseStartTrue
+               << "diff" << diff << "textAngle" << textAngle << (diff > 0.f ? "right" : "left");
+#endif
+
+      float size = context->szF(context->symbolSizeNavaid, context->mapLayerRoute->getWaypointSymbolSize());
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wswitch-enum"
-      switch(type)
+      switch(curLeg.getMapType())
       {
         case map::INVALID:
-          paintText(mapcolors::routeInvalidPointColor, x, y, true /* drawTextDetails */, {obj.getDisplayIdent()});
+          paintText(mapcolors::routeInvalidPointColor, x, y, size, true /* drawTextDetails */, {curLeg.getDisplayIdent()},
+                    textPlacementAtts);
           break;
+
         case map::USERPOINTROUTE:
-          paintText(mapcolors::routeUserPointColor, x, y, true /* drawTextDetails */,
-                    {atools::elideTextShort(obj.getDisplayIdent(), context->mapLayerRoute->getMaxTextLengthAirport())});
+          paintText(mapcolors::routeUserPointColor, x, y, size, true /* drawTextDetails */,
+                    {atools::elideTextShort(curLeg.getDisplayIdent(), context->mapLayerRoute->getMaxTextLengthAirport())},
+                    textPlacementAtts);
           break;
+
         case map::AIRPORT:
-          paintAirportText(x, y, obj.getAirport());
+          paintAirportText(x, y, curLeg.getAirport(), textPlacementAtts);
           break;
+
         case map::VOR:
-          paintVorText(x, y, obj.getVor(), true /* drawTextDetails */, nullptr);
+          paintVorText(x, y, curLeg.getVor(), true /* drawTextDetails */, textPlacementAtts, nullptr);
           break;
+
         case map::NDB:
-          paintNdbText(x, y, obj.getNdb(), true /* drawTextDetails */, nullptr);
+          paintNdbText(x, y, curLeg.getNdb(), true /* drawTextDetails */, textPlacementAtts, nullptr);
           break;
+
         case map::WAYPOINT:
-          paintWaypointText(x, y, obj.getWaypoint(), true /* drawTextDetails */, nullptr);
+          paintWaypointText(x, y, curLeg.getWaypoint(), true /* drawTextDetails */, textPlacementAtts, nullptr);
           break;
 
         default:
@@ -2118,17 +2324,17 @@ void MapPainterRoute::drawRouteSymbolText(const QBitArray& visibleStartPoints, c
       }
 #pragma GCC diagnostic pop
     }
-    i++;
   }
 }
 
-void MapPainterRoute::drawStartParking()
+void MapPainterRoute::paintStartParking()
 {
+  const static QMargins MARGINS(20, 20, 20, 20);
   const Route *route = context->route;
 
   // Draw start position or parking circle into the airport diagram
   const RouteLeg& departureLeg = route->getDepartureAirportLeg();
-  if(departureLeg.isValid() && departureLeg.getMapObjectType() == map::AIRPORT)
+  if(departureLeg.isValid() && departureLeg.getMapType() == map::AIRPORT)
   {
     // Use airport symbol as base size for default
     float radius = context->szF(context->symbolSizeAirport, context->mapLayerRoute->getAirportSymbolSize()) * 0.75f;
@@ -2161,7 +2367,7 @@ void MapPainterRoute::drawStartParking()
     if(startPos.isValid())
     {
       float x, y;
-      if(wToSBuf(startPos, x, y, QMargins(20, 20, 20, 20)))
+      if(wToSBuf(startPos, x, y, MARGINS))
       {
         bool transparent = context->flags2.testFlag(opts2::MAP_HIGHLIGHT_TRANSPARENT);
         if(!transparent)
@@ -2182,7 +2388,7 @@ void MapPainterRoute::drawStartParking()
   }
 }
 
-void MapPainterRoute::drawWindBarbAtWaypoint(float windSpeed, float windDir, float x, float y)
+void MapPainterRoute::paintWindBarbAtWaypoint(float windSpeed, float windDir, float x, float y)
 {
   if(context->route->hasAltitudeLegs() && context->route->isValidProfile())
   {

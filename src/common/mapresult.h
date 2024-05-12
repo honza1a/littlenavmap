@@ -87,6 +87,9 @@ struct MapResult
 
   QList<map::MapProcedurePoint> procPoints;
 
+  /* Nearest aircraft trail segment for user aircraft and logbook preview */
+  map::AircraftTrailSegment trailSegment, trailSegmentLog;
+
   /* true if none of the types exists in this result */
   bool isEmpty(const map::MapTypes& types = map::ALL) const
   {
@@ -105,6 +108,14 @@ struct MapResult
   /* Get id and type from the result. Vector of types defines priority. true if something was found.
    * id is set to -1 if nothing was found. */
   bool getIdAndType(int& id, MapTypes& type, const std::initializer_list<MapTypes>& types) const;
+  map::MapRef getRef(const std::initializer_list<MapTypes>& types) const;
+
+  /* Get id. This assumes there is only one object for the given type. Returns -1 if not found. */
+  int getId(const MapTypes& type) const;
+
+  /* Get routeIndex. This assumes there is only one object for the given type. Returns -1 if not found.
+   * Only for flight plan related types. */
+  int getRouteIndex(const MapTypes& type) const;
 
   /* Get position and returns first for the list of types defining priority by order */
   const atools::geo::Pos& getPosition(const std::initializer_list<MapTypes>& types) const;
@@ -120,6 +131,9 @@ struct MapResult
 
   /* Remove all except first for the given types only */
   MapResult& clearAllButFirst(const MapTypes& types = map::ALL);
+
+  /* Sets routeIndex for all flight plan related types to -1 */
+  MapResult& clearRouteIndex(const MapTypes& types = map::ALL);
 
   /* Give online airspaces/centers priority */
   void moveOnlineAirspacesToFront();
@@ -241,20 +255,33 @@ struct MapResult
   int numSimNavUserAirspaces() const;
   int numOnlineAirspaces() const;
 
-  QList<MapAirspace> getSimNavUserAirspaces() const;
-
-  QList<MapAirspace> getOnlineAirspaces() const;
+  const QList<MapAirspace> getSimNavUserAirspaces() const;
+  const QList<MapAirspace> getOnlineAirspaces() const;
 
   QString objectText(MapTypes type, int elideName = 1000) const;
 
+  /* Remove all invalid objects */
   void removeInvalid();
+
+  /* Remove all objects having no route index, i.e. which are not a part of the flight plan */
+  void removeNoRouteIndex();
 
 private:
   template<typename TYPE>
-  void clearAllButFirst(QList<TYPE>& list);
+  void clearAllButFirst(QList<TYPE>& list)
+  {
+    while(list.size() > 1)
+      list.removeLast();
+  }
+
+  template<typename TYPE>
+  void removeNoRouteIndex(QList<TYPE>& list, QSet<int> *ids = nullptr);
 
   template<typename TYPE>
   void removeInvalid(QList<TYPE>& list, QSet<int> *ids = nullptr);
+
+  template<class TYPE>
+  void setRouteIndex(QList<TYPE>& list, const MapTypes& types, const MapTypes& type, int routeIndex = -1);
 
 };
 
@@ -292,13 +319,20 @@ struct MapResultIndex
   MapResultIndex& sort(const QVector<map::MapTypes>& types, const map::MapResultIndex::SortFunction& sortFunc);
 
   /* Sort objects by distance to pos in the list */
-  MapResultIndex& sort(const atools::geo::Pos& pos, bool sortNearToFar);
+  MapResultIndex& sort(const atools::geo::Pos& pos, bool sortNearToFar = true);
 
   /* Sort objects alphabetically */
   // MapSearchResultIndex& sort();
 
   /* Remove all objects which are more far away  from pos than max distance */
   MapResultIndex& remove(const atools::geo::Pos& pos, float maxDistanceNm);
+
+  /* Remove all objects having a routeIndex = -1 */
+  void eraseNonRouteIndexLegs();
+
+  /* Remove duplicate MapProcedurePoint objects.
+   * Ignore transitions and erase duplicates based on airport and approaches if true */
+  void eraseDuplicateProcedures(bool base = false);
 
 private:
   /* Last index is including */

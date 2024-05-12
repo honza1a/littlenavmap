@@ -17,6 +17,7 @@
 
 #include "search/searchcontroller.h"
 
+#include "atools.h"
 #include "common/constants.h"
 #include "common/formatter.h"
 #include "common/mapresult.h"
@@ -70,41 +71,15 @@ SearchController::SearchController(QMainWindow *parent, QTabWidget *tabWidgetSea
 
 SearchController::~SearchController()
 {
-  qDebug() << Q_FUNC_INFO << "delete tabHandlerSearch";
-  delete tabHandlerSearch;
-  tabHandlerSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete airportSearch";
-  delete airportSearch;
-  airportSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete navSearch";
-  delete navSearch;
-  navSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete procedureSearch";
-  delete procedureSearch;
-  procedureSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete userdataSearch";
-  delete userdataSearch;
-  userdataSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete logdataSearch";
-  delete logdataSearch;
-  logdataSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete onlineClientSearch";
-  delete onlineClientSearch;
-  onlineClientSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete onlineCenterSearch";
-  delete onlineCenterSearch;
-  onlineCenterSearch = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete onlineServerSearch";
-  delete onlineServerSearch;
-  onlineServerSearch = nullptr;
+  ATOOLS_DELETE_LOG(tabHandlerSearch);
+  ATOOLS_DELETE_LOG(airportSearch);
+  ATOOLS_DELETE_LOG(navSearch);
+  ATOOLS_DELETE_LOG(procedureSearch);
+  ATOOLS_DELETE_LOG(userdataSearch);
+  ATOOLS_DELETE_LOG(logdataSearch);
+  ATOOLS_DELETE_LOG(onlineClientSearch);
+  ATOOLS_DELETE_LOG(onlineCenterSearch);
+  ATOOLS_DELETE_LOG(onlineServerSearch);
 }
 
 void SearchController::getSelectedMapObjects(map::MapResult& result) const
@@ -116,14 +91,14 @@ void SearchController::getSelectedMapObjects(map::MapResult& result) const
 
 void SearchController::optionsChanged()
 {
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     search->optionsChanged();
 }
 
 void SearchController::styleChanged()
 {
   tabHandlerSearch->styleChanged();
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     search->styleChanged();
 }
 
@@ -184,8 +159,8 @@ void SearchController::tabChanged(int index)
 
 void SearchController::saveState()
 {
-  for(AbstractSearch *s : allSearchTabs)
-    s->saveState();
+  for(AbstractSearch *searchTab : qAsConst(allSearchTabs))
+    searchTab->saveState();
 
   tabHandlerSearch->saveState();
 }
@@ -194,8 +169,8 @@ void SearchController::restoreState()
 {
   tabHandlerSearch->restoreState();
 
-  for(AbstractSearch *s : allSearchTabs)
-    s->restoreState();
+  for(AbstractSearch *searchTab : qAsConst(allSearchTabs))
+    searchTab->restoreState();
 }
 
 void SearchController::createAirportSearch(QTableView *tableView)
@@ -272,36 +247,36 @@ void SearchController::postCreateSearch(AbstractSearch *search)
 
 void SearchController::preDatabaseLoad()
 {
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     search->preDatabaseLoad();
 }
 
 void SearchController::postDatabaseLoad()
 {
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     search->postDatabaseLoad();
 }
 
 void SearchController::refreshUserdata()
 {
-  userdataSearch->refreshData(false /* load all */, true /* keep selection */);
+  userdataSearch->refreshData(false /* load all */, true /* keep selection */, true /* force */);
 }
 
 void SearchController::refreshLogdata()
 {
-  logdataSearch->refreshData(false /* load all */, true /* keep selection */);
+  logdataSearch->refreshData(false /* load all */, true /* keep selection */, true /* force */);
 }
 
 void SearchController::clearSelection()
 {
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     search->clearSelection();
 }
 
 bool SearchController::hasSelection()
 {
   bool selection = false;
-  for(AbstractSearch *search : allSearchTabs)
+  for(AbstractSearch *search : qAsConst(allSearchTabs))
     selection |= search->hasSelection();
   return selection;
 }
@@ -447,7 +422,7 @@ void SearchController::searchSelectionChanged(const SearchBaseTable *source, int
     source->getSelectedMapObjects(result);
 
     float travelTimeRealHours = 0.f, travelTimeSimHours = 0.f, distanceNm = 0.f;
-    for(const map::MapLogbookEntry& entry : result.logbookEntries)
+    for(const map::MapLogbookEntry& entry : qAsConst(result.logbookEntries))
     {
       travelTimeRealHours += entry.travelTimeRealHours;
       travelTimeSimHours += entry.travelTimeSimHours;

@@ -171,7 +171,7 @@ public:
    * @param id Id of object to insert
    * @param userPos Coordinates of user defined position if no navaid is to be inserted.
    * @param type Type of object to insert. maptypes::USER if userPos is set.
-   * @param legIndex Insert after the leg with this index. Will use nearest leg if index is -1.
+   * @param legIndex Insert after the leg with this index. Will use nearest leg if index is -1 and append if INVALID_INDEX.
    */
   void routeAdd(int id, atools::geo::Pos userPos, map::MapTypes type, int legIndex);
 
@@ -183,6 +183,12 @@ public:
 
   /* Delete waypoint at the given index. Will also delete departure or destination */
   void routeDelete(int index);
+
+  /* Called by action */
+  void deleteSelectedLegsTriggered();
+
+  void routeDirectTo(int id, const atools::geo::Pos& userPos, map::MapTypes type, int legIndexDirectTo);
+  void directToTriggered();
 
   /* Set departure parking position. If the airport of the parking spot is different to
    * the current departure it will be replaced too. */
@@ -208,6 +214,7 @@ public:
 
   /* Change in options dialog */
   void optionsChanged();
+  void fontChanged(const QFont& font);
 
   /* Tracks downloaded or deleted */
   void tracksChanged();
@@ -237,6 +244,9 @@ public:
 
   /* Adjust altitude according to simple east/west VFR/IFR rules */
   void adjustFlightplanAltitude();
+
+  /* Select result in flight plan table */
+  void showInRoute(int index);
 
   FlightplanEntryBuilder *getFlightplanEntryBuilder() const
   {
@@ -316,6 +326,9 @@ public:
   /* Update travel times, fuel, wind and calculated altitude values in table view model after update */
   void updateModelTimeFuelWindAlt();
 
+  /* Convert given procedure type at leg index to waypoints */
+  void convertProcedure(int routeIndex);
+
 signals:
   /* Show airport on map */
   void showRect(const atools::geo::Rect& rect, bool doubleClick);
@@ -361,16 +374,16 @@ private:
     MOVE_UP = -1
   };
 
-  /* Saves flight plan using LNM format */
+  /* Saves flight plan using LNM format. Returns true on success. */
   bool saveFlightplanLnmInternal(const QString& filename, bool silent);
 
   /* Saves flight plan sippet using LNM format to given name. Given range must not contains procedures or alternates. */
   bool saveFlightplanLnmSelectionAs(const QString& filename, int from, int to) const;
 
-  /* Called by route command */
+  /* Called by undo command */
   void changeRouteUndo(const atools::fs::pln::Flightplan& newFlightplan);
 
-  /* Called by route command */
+  /* Called by undo command */
   void changeRouteRedo(const atools::fs::pln::Flightplan& newFlightplan);
 
   /* Save undo state before and after change */
@@ -384,24 +397,36 @@ private:
 
   void tableContextMenu(const QPoint& pos);
 
-  void tableSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
+  void tableSelectionChanged(const QItemSelection&, const QItemSelection&);
 
-  void moveSelectedLegsDown();
-  void moveSelectedLegsUp();
+  /* Convert given procedure type to waypoints */
+  void convertProcedure(proc::MapProcedureTypes types);
+
+  void moveSelectedLegsDownTriggered();
+  void moveSelectedLegsUpTriggered();
   void moveSelectedLegsInternal(MoveDirection direction);
-  void deleteSelectedLegs();
+  void deleteSelectedLegs(const QList<int>& rows);
   void deleteSelectedLegsInternal(const QList<int>& rows);
+
   QList<int> getSelectedRows(bool reverseRoute) const;
 
   void selectList(const QList<int>& selectedRows, int offset);
   void selectRange(int from, int to);
 
-  void updateMoveAndDeleteActions();
+  /* Enable/disable move, delete and direct to */
+  void updateActions();
+  void updateDirectToAction();
+
+  int routeAddInternal(int id, atools::geo::Pos userPos, map::MapTypes type, int legIndex, bool presentPos = false);
 
   void routeSetDepartureInternal(const map::MapAirport& airport);
   void routeSetDestinationInternal(const map::MapAirport& airport);
 
-  void updateTableModel();
+  /* Update table view model completely */
+  void updateTableModelAndErrors();
+
+  /* Remove all airways violating restrictions after altitude calculation during climb and/or descent */
+  void clearAirwayViolations();
 
   void routeAltChanged();
   void routeAltChangedDelayed();
@@ -426,18 +451,21 @@ private:
   /* Used by undo/redo */
   void changeRouteUndoRedo(const atools::fs::pln::Flightplan& newFlightplan);
 
-  void tableCopyClipboard();
-
-  void showInformationMenu();
-  void showProceduresMenu();
+  void tableCopyClipboardTriggered();
 
   /* From context menu */
-  void showCustomApproachRouteMenu();
+  void showInformationTriggered();
 
   /* From context menu */
-  void showCustomDepartureRouteMenu();
+  void showProceduresTriggered();
 
-  void showOnMapMenu();
+  /* From context menu */
+  void showCustomApproachRouteTriggered();
+
+  /* From context menu */
+  void showCustomDepartureRouteTriggered();
+
+  void showOnMapTriggered();
 
   void showInformationInternal(const RouteLeg& routeLeg);
 
@@ -457,7 +485,10 @@ private:
 
   void updateTableHeaders();
   void highlightNextWaypoint(int activeLegIdx);
-  void updateModelHighlights();
+
+  /* Set colors for procedures and missing objects like waypoints and airways.
+   * Also fills flight plan errors */
+  void updateModelHighlightsAndErrors();
 
   /* Fill the route procedure legs structures with data based on the procedure properties in the flight plan */
   void loadProceduresFromFlightplan(bool clearOldProcedureProperties, bool cleanupRoute, bool autoresolveTransition);
@@ -472,7 +503,6 @@ private:
   void selectAllTriggered();
 
   void activateLegTriggered();
-  void fontChanged();
 
   void routeTableOptions();
   void contextMenu(const QPoint& pos);
@@ -486,9 +516,6 @@ private:
 
   /* Move active leg to second top position */
   void scrollToActive();
-
-  void viewScrolled(int);
-  void sliderPressedOrReleased();
 
   /* Remove all errors from lists */
   void clearAllErrors();
@@ -511,6 +538,13 @@ private:
   void clearFlightplan();
 
   void updateComboBoxFromFlightplanType();
+
+  /* Do not send model updates while modifying it */
+  void blockModel();
+  void unBlockModel();
+
+  /* Set and select current row */
+  void setCurrentRow(int row);
 
   /* Selected rows in table. Updated on selection change. */
   QList<int> selectedRows;
@@ -563,7 +597,7 @@ private:
   bool loadingDatabaseState = false;
   qint64 lastSimUpdate = 0;
 
-  /* Currently active leg or -1 if none */
+  /* Currently active leg or -1 if none. Used for table highlighting. */
   int activeLegIndex = -1;
 
   /* Copy of current active aircraft updated every MIN_SIM_UPDATE_TIME_MS */
@@ -576,16 +610,22 @@ private:
   /* Timers for updating altitude delayer, clear selection while flying and moving active to top */
   QTimer routeAltDelayTimer, tableCleanupTimer;
 
-  // Route table colum headings
+  /* Route table colum headings */
   QStringList routeColumns, routeColumnDescription;
   UnitStringTool *units = nullptr;
 
-  // Errors collected when parsing route for model
-  QStringList flightplanErrors, procedureErrors, alternateErrors;
+  /* Errors collected when parsing route for model, reading route legs or reading procedures */
+  QStringList flightplanErrors, parkingErrors, procedureErrors, alternateErrors;
 
-  // String to save flight plan temporarily in LNMPLN format when switching databases
+  /* String to save flight plan temporarily in LNMPLN format when switching databases */
   QString tempFlightplanStr;
   bool trackErrors = false;
+
+  /* Ignore follow selection in tableSelectionChanged() if its origin is from showInRoute() */
+  bool ignoreFollowSelection = false;
+
+  /* Do not send model updates while modifying it */
+  bool modelUpdatesBlocked = false;
 };
 
 #endif // LITTLENAVMAP_ROUTECONTROLLER_H

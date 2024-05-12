@@ -62,7 +62,7 @@ void MapThemeHandler::loadThemes()
   themes.clear();
   themeIdToIndexMap.clear();
 
-  QSet<QString> ids, sourceDirs;
+  QHash<QString, MapTheme> ids, sourceDirs;
   QStringList errors;
   for(const QFileInfo& dgml : findMapThemes({getMapThemeDefaultDir(), getMapThemeUserDir()}))
   {
@@ -72,32 +72,58 @@ void MapThemeHandler::loadThemes()
     {
       if(ids.contains(theme.theme))
       {
-        errors.append(tr("Duplicate theme id \"%1\" in element \"&lt;theme&gt;\".<br/>"
-                         "File \"%2\".<br/>"
-                         "Theme ids have to be unique across all map themes.").arg(theme.theme).arg(theme.dgmlFilepath));
+        MapTheme otherTheme = ids.value(theme.theme);
+        errors.append(tr("Duplicate theme id \"%1\" in element \"&lt;theme&gt;\".<br/><br/>"
+                         "File with first occurence<br/>\"%2\".<br/><br/>"
+                         "File with second occurence being ignored<br/>\"%3\".<br/><br/>"
+                         "Theme ids have to be unique across all map themes.<br/><br/>"
+                         "<b>Remove one of these two map themes to avoid this message.</b><br/>").
+                      arg(theme.theme).arg(otherTheme.dgmlFilepath).arg(theme.dgmlFilepath));
         continue;
       }
 
-      if(theme.online && sourceDirs.intersects(QSet<QString>(theme.sourceDirs.begin(), theme.sourceDirs.end())))
+      // Present source dirs loaded so far
+      QSet<QString> sourceDirKeys(sourceDirs.keyBegin(), sourceDirs.keyEnd());
+
+      // Test for overlapping source dirs with this theme
+      QSet<QString> conflictSourceDirKeys = sourceDirKeys.intersect(QSet<QString>(theme.sourceDirs.begin(), theme.sourceDirs.end()));
+
+      if(theme.online && !conflictSourceDirKeys.isEmpty())
       {
-        errors.append(tr("Duplicate source directory \"%1\" in element \"&lt;sourcedir&gt;\".<br/>"
-                         "File \"%2\".<br/>"
-                         "Source directories are used to cache map tiles and have to be unique across all map themes.").
-                      arg(theme.sourceDirs.join(tr(("/")))).arg(theme.dgmlFilepath));
+        // Get a list of themes using the same source dirs
+        QList<MapTheme> otherThemes;
+        for(auto it = conflictSourceDirKeys.begin(); it != conflictSourceDirKeys.end(); ++it)
+          otherThemes.append(sourceDirs.values(*it));
+
+        // Get file paths for DGML
+        QStringList otherDgmlFilepaths;
+        for(const MapTheme& t : otherThemes)
+          otherDgmlFilepaths.append(t.dgmlFilepath);
+        otherDgmlFilepaths.removeAll(QString());
+        otherDgmlFilepaths.removeDuplicates();
+
+        errors.append(tr("Duplicate source directory or directories \"%1\" in element \"&lt;sourcedir&gt;\".<br/><br/>"
+                         "File with first occurence<br/>\"%2\".<br/><br/>"
+                         "File(s) with second occurence being ignored<br/>\"%3\".<br/><br/>"
+                         "Source directories are used to cache map tiles and have to be unique across all map themes.<br/><br/>"
+                         "<b>Remove one of these two map themes to avoid this message.</b><br/>").
+                      arg(theme.sourceDirs.join(tr("\", \""))).arg(otherDgmlFilepaths.join(tr("\", \""))).arg(theme.dgmlFilepath));
         continue;
       }
 
       if(theme.theme.isEmpty())
       {
         errors.append(tr("Empty theme id in in element \"&lt;theme&gt;\".<br/>"
-                         "File \"%1\".").arg(theme.dgmlFilepath));
+                         "File \"%1\".<br/><br/>"
+                         "<b>Remove or repair this map theme to avoid this message.</b><br/>").arg(theme.dgmlFilepath));
         continue;
       }
 
       if(theme.online && theme.sourceDirs.isEmpty())
       {
         errors.append(tr("Empty source directory in in element \"&lt;sourcedir&gt;\".<br/>"
-                         "File \"%1\".").arg(theme.dgmlFilepath));
+                         "File \"%1\".<br/><br/>"
+                         "<b>Remove or repair this map theme to avoid this message.</b><br/>").arg(theme.dgmlFilepath));
         continue;
       }
 
@@ -105,13 +131,14 @@ void MapThemeHandler::loadThemes()
       {
         errors.append(tr("Invalid target \"%1\" in element \"&lt;target&gt;\".<br/>"
                          "File \"%2\".<br/>"
-                         "Element must contain text \"earth\".").arg(theme.target).arg(theme.dgmlFilepath));
+                         "Element must contain text \"earth\".<br/><br/>"
+                         "<b>Remove or repair this map theme to avoid this message.</b><br/>").arg(theme.target).arg(theme.dgmlFilepath));
         continue;
       }
 
-      ids.insert(theme.theme);
-      for(const QString& dir : theme.sourceDirs)
-        sourceDirs.insert(dir);
+      ids.insert(theme.theme, theme);
+      for(const QString& dir : qAsConst(theme.sourceDirs))
+        sourceDirs.insert(dir, theme);
 
       qInfo() << Q_FUNC_INFO << "Found" << theme.theme << theme.name;
 
@@ -119,7 +146,7 @@ void MapThemeHandler::loadThemes()
       themes.append(theme);
 
       // Collect all keys and insert with empty value
-      for(const QString& key : theme.keys)
+      for(const QString& key : qAsConst(theme.keys))
         mapThemeKeys.insert(key, QString());
     }
     else
@@ -134,8 +161,9 @@ void MapThemeHandler::loadThemes()
     QMessageBox::warning(mainWindow, QApplication::applicationName(),
                          tr("<p>Found errors in map %2:</p>"
                               "<ul><li>%1</li></ul>"
-                                "<p>Ignoring %2.</p>").
-                         arg(errors.join("</li><li>")).arg(errors.size() == 1 ? tr("this map theme") : tr("these map themes")));
+                                "<p>Ignoring duplicate or incorrect %2.</p>"
+                                  "<p>Note that all other valid map themes are loaded and can be used despite this message.</p>").
+                         arg(errors.join("</li><li>")).arg(errors.size() == 1 ? tr("map theme") : tr("map themes")));
   }
 
   // Sort themes first by online/offline status and then case insensitive by name
@@ -469,7 +497,7 @@ MapTheme MapThemeHandler::loadTheme(const QFileInfo& dgml)
   return theme;
 }
 
-QList<QFileInfo> MapThemeHandler::findMapThemes(const QStringList& paths)
+const QList<QFileInfo> MapThemeHandler::findMapThemes(const QStringList& paths)
 {
   QList<QFileInfo> dgmlFileInfos;
 
@@ -548,7 +576,7 @@ void MapThemeHandler::setupMapThemesUi()
 
   // Map themes =========================================
   delete toolButtonMapTheme;
-  toolButtonMapTheme = new QToolButton(ui->toolbarMapOptions);
+  toolButtonMapTheme = new QToolButton(ui->toolBarMapOptions);
 
   // Create and add toolbar button =====================================
   toolButtonMapTheme->setIcon(QIcon(":/littlenavmap/resources/icons/map.svg"));

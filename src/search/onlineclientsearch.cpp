@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -21,11 +21,10 @@
 #include "common/constants.h"
 #include "common/formatter.h"
 #include "common/mapresult.h"
-#include "common/unit.h"
-#include "fs/online/onlinetypes.h"
 #include "gui/widgetstate.h"
 #include "app/navapp.h"
 #include "online/onlinedatacontroller.h"
+#include "options/optiondata.h"
 #include "search/column.h"
 #include "search/columnlist.h"
 #include "search/sqlcontroller.h"
@@ -35,7 +34,24 @@
 OnlineClientSearch::OnlineClientSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId tabWidgetIndex)
   : SearchBaseTable(parent, tableView, new ColumnList("client", "client_id"), tabWidgetIndex)
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
+  /* *INDENT-OFF* */
+  ui->pushButtonOnlineClientHelpSearch->setToolTip(
+    "<p>All set search conditions have to match.</p>"
+    "<p>Search tips for text fields: </p>"
+    "<ul>"
+      "<li>Default is search for online clients that contain the entered text.</li>"
+      "<li>Use &quot;*&quot; as a placeholder for any text. </li>"
+      "<li>Prefix with &quot;-&quot; as first character to negate search.</li>"
+      "<li>Only callsign field: Use double quotes like &quot;TAU&quot; to force exact search.</li>"
+    "</ul>");
+  /* *INDENT-ON* */
+
+  // All widgets that will have their state and visibility saved and restored
+  onlineClientSearchWidgets =
+  {
+    ui->horizontalLayoutOnlineClient,
+    ui->actionSearchOnlineClientFollowSelection
+  };
 
   // Default view column descriptors
   // Hidden columns are part of the query and can be used as search criteria but are not shown in the table
@@ -90,14 +106,6 @@ void OnlineClientSearch::connectSearchSlots()
 {
   SearchBaseTable::connectSearchSlots();
 
-  Ui::MainWindow *ui = NavApp::getMainUi();
-
-  // All widgets that will have their state and visibility saved and restored
-  onlineClientSearchWidgets =
-  {
-    ui->horizontalLayoutOnlineClient
-  };
-
   // Small push buttons on top
   connect(ui->pushButtonOnlineClientSearchClearSelection, &QPushButton::clicked,
           this, &SearchBaseTable::nothingSelectedTriggered);
@@ -117,41 +125,29 @@ void OnlineClientSearch::saveState()
 {
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET);
   widgetState.save(onlineClientSearchWidgets);
-
-  Ui::MainWindow *ui = NavApp::getMainUi();
-  widgetState.save(ui->horizontalLayoutOnlineClient);
 }
 
 void OnlineClientSearch::restoreState()
 {
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH)
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH && !NavApp::isSafeMode())
   {
     atools::gui::WidgetState widgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET);
     widgetState.restore(onlineClientSearchWidgets);
-
-    restoreViewState(false);
-
-    // Need to block signals here to avoid unwanted behavior (will enable
-    // distance search and avoid saving of wrong view widget state)
-    widgetState.setBlockSignals(true);
-    Ui::MainWindow *ui = NavApp::getMainUi();
-    widgetState.restore(ui->horizontalLayoutOnlineClient);
   }
   else
-    atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).restore(
-      NavApp::getMainUi()->tableViewOnlineClientSearch);
+    atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).restore(ui->tableViewOnlineClientSearch);
+
+  finishRestore();
 }
 
 void OnlineClientSearch::saveViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).save(
-    NavApp::getMainUi()->tableViewOnlineClientSearch);
+  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).save(ui->tableViewOnlineClientSearch);
 }
 
 void OnlineClientSearch::restoreViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).restore(
-    NavApp::getMainUi()->tableViewOnlineClientSearch);
+  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_CLIENT_VIEW_WIDGET).restore(ui->tableViewOnlineClientSearch);
 }
 
 /* Callback for the controller. Will be called for each table cell and should return a formatted value */
@@ -219,7 +215,7 @@ QString OnlineClientSearch::formatModelData(const Column *col, const QVariant& d
 
 void OnlineClientSearch::getSelectedMapObjects(map::MapResult& result) const
 {
-  if(!NavApp::getMainUi()->dockWidgetSearch->isVisible())
+  if(!ui->dockWidgetSearch->isVisible())
     return;
 
   // Build a SQL record with all available fields
@@ -268,11 +264,10 @@ void OnlineClientSearch::updateButtonMenu()
 void OnlineClientSearch::updatePushButtons()
 {
   QItemSelectionModel *sm = view->selectionModel();
-  Ui::MainWindow *ui = NavApp::getMainUi();
   ui->pushButtonOnlineClientSearchClearSelection->setEnabled(sm != nullptr && sm->hasSelection());
 }
 
 QAction *OnlineClientSearch::followModeAction()
 {
-  return NavApp::getMainUi()->actionSearchOnlineClientFollowSelection;
+  return ui->actionSearchOnlineClientFollowSelection;
 }

@@ -223,6 +223,10 @@ public:
   /* Called from the export if LNMPLN was bulk exported */
   void routeSaveLnmExported(const QString& filename);
 
+  /* Load or append trail from GPX file */
+  void trailLoadGpx();
+  void trailAppendGpx();
+
   /* true if map window is maximized */
   bool isFullScreen() const;
 
@@ -244,7 +248,10 @@ public:
   void routeNew();
 
   /* Question dialog and then delete map and profile trail */
-  void deleteAircraftTrack(bool quiet = false);
+  void deleteAircraftTrail(bool quiet);
+
+  /* Silently deletes track on takeoff */
+  void deleteProfileAircraftTrail();
 
   atools::gui::DockWidgetHandler *getDockHandler() const
   {
@@ -263,6 +270,9 @@ public:
 
   /* Set current and default path for the LNMPLN export */
   void setLnmplnExportDir(const QString& dir);
+
+  /* Called by QApplication::fontChanged() */
+  void fontChanged(const QFont& font);
 
 signals:
   /* Emitted when window is shown the first time */
@@ -362,6 +372,9 @@ private:
   /* Reset all "do not show this again" message box status values */
   void resetMessages();
   void resetAllSettings();
+
+  /* Manual issue report triggered from the menu */
+  void createIssueReport();
   void showDatabaseFiles();
   void showShowMapCache();
   void showMapInstallation();
@@ -393,9 +406,8 @@ private:
 
   void legendAnchorClicked(const QUrl& url);
 
-  void scaleToolbar(QToolBar *toolbar, float scale);
-  void showOnlineHelp();
-  void showOnlineTutorials();
+  void trailLoadGpxFile(const QString& file);
+
   void showOfflineHelp();
   void showOnlineDownloads();
   void showChangelog();
@@ -409,7 +421,7 @@ private:
   /* Emit a signal windowShown after first appearance */
   virtual void showEvent(QShowEvent *event) override;
   void weatherUpdateTimeout();
-  void updateAirspaceTypes(map::MapAirspaceFilter filter);
+  void updateAirspaceTypes(const map::MapAirspaceFilter& filter);
   void updateAirspaceSources();
   void resetWindowLayout();
   void resetTabLayout();
@@ -450,8 +462,13 @@ private:
 
   void openOptionsDialog();
 
+  void applyToolBarSize();
+
   /* Print the size of all container classes to detect overflow or memory leak conditions */
   void debugDumpContainerSizes() const;
+
+  /* Reduce status bar size if no mouse movement */
+  void shrinkStatusBar();
 
 #ifdef DEBUG_INFORMATION
   void debugActionTriggered1();
@@ -537,11 +554,15 @@ private:
   WeatherContextHandler *weatherContextHandler;
   QAction *emptyAirportSeparator = nullptr;
 
+  QList<QToolBar *> toolbars;
+
   /* Show database dialog after cleanup of obsolete databases if true */
   bool databasesErased = false;
   QSize defaultToolbarIconSize;
   QString aboutMessage, layoutWarnText;
-  QTimer clockTimer, renderStatusTimer;
+  QTimer clockTimer /* MainWindow::updateClock() every second */,
+         renderStatusTimer /* MainWindow::renderStatusReset() if render status is stalled */,
+         shrinkStatusBarTimer /* calls MainWindow::shrinkStatusBar() once map pos and magvar are "-" */;
   Marble::RenderStatus lastRenderStatus = Marble::Incomplete;
 
   /* Show hint dialog only once per session */

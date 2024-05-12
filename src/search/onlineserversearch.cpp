@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -18,20 +18,13 @@
 #include "search/onlineserversearch.h"
 
 #include "app/navapp.h"
-#include "common/maptypes.h"
-#include "common/mapflags.h"
 #include "common/constants.h"
+#include "options/optiondata.h"
 #include "search/sqlcontroller.h"
 #include "search/column.h"
 #include "ui_mainwindow.h"
 #include "search/columnlist.h"
-#include "gui/widgetutil.h"
 #include "gui/widgetstate.h"
-#include "common/mapcolors.h"
-#include "common/unit.h"
-#include "atools.h"
-#include "common/maptypesfactory.h"
-#include "sql/sqlrecord.h"
 
 OnlineServerSearch::OnlineServerSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId tabWidgetIndex)
   : SearchBaseTable(parent, tableView, new ColumnList("server", "server_id"), tabWidgetIndex)
@@ -58,10 +51,6 @@ OnlineServerSearch::~OnlineServerSearch()
 {
 }
 
-void OnlineServerSearch::overrideMode(const QStringList&)
-{
-}
-
 void OnlineServerSearch::connectSearchSlots()
 {
   SearchBaseTable::connectSearchSlots();
@@ -72,27 +61,25 @@ void OnlineServerSearch::connectSearchSlots()
 
 void OnlineServerSearch::saveState()
 {
+  saveViewState(false);
 }
 
 void OnlineServerSearch::restoreState()
 {
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH)
-    restoreViewState(false);
-  else
-    atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).restore(
-      NavApp::getMainUi()->tableViewOnlineServerSearch);
+  if(!OptionData::instance().getFlags().testFlag(opts::STARTUP_LOAD_SEARCH) || NavApp::isSafeMode())
+    atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).restore(ui->tableViewOnlineServerSearch);
+
+  finishRestore();
 }
 
 void OnlineServerSearch::saveViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).save(
-    NavApp::getMainUi()->tableViewOnlineServerSearch);
+  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).save(ui->tableViewOnlineServerSearch);
 }
 
 void OnlineServerSearch::restoreViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).restore(
-    NavApp::getMainUi()->tableViewOnlineServerSearch);
+  atools::gui::WidgetState(lnm::SEARCHTAB_ONLINE_SERVER_VIEW_WIDGET).restore(ui->tableViewOnlineServerSearch);
 }
 
 /* Callback for the controller. Will be called for each table cell and should return a formatted value */

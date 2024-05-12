@@ -111,12 +111,12 @@ public:
   QString getDisplayIdent(bool useIata = true) const;
 
   /* Comment section from flight plan entry */
-  QString getComment() const;
+  const QString& getComment() const;
 
-  QString getRegion() const;
+  const QString& getRegion() const;
 
   /* Get name of airport or navaid. Empty for waypoint or user. Source can be flight plan entry or database. */
-  QString getName() const;
+  const QString& getName() const;
 
   /* Get airway  name from loaded flight plan. */
   const QString& getAirwayName() const;
@@ -133,7 +133,7 @@ public:
 
   /* Get frequency of radio navaid. 0 if not a radio navaid. Source is always database. */
   int getFrequency() const;
-  QString getChannel() const;
+  const QString& getChannel() const;
   QString getFrequencyOrChannel() const;
 
   /* Get magnetic variation at leg start. Source is always database. Does NOT use VOR declination. */
@@ -148,19 +148,25 @@ public:
     return magvarEnd;
   }
 
+  /* Get magnetic variation at leg end (waypoint) or VOR calibrated declination if present. Source is always database. */
+  float getMagvarEndOrCalibrated() const
+  {
+    return isCalibratedVor() ? getVor().magvar : getMagvarEnd();
+  }
+
   /* Get range of radio navaid. -1 if not a radio navaid. Source is always database. */
   int getRange() const;
 
-  map::MapTypes getMapObjectType() const
+  map::MapTypes getMapType() const
   {
     return type;
   }
 
   /* Type like Airport, NDB (MH) or VOR (H) */
-  QString getMapObjectTypeName() const;
+  QString getMapTypeName() const;
 
   /* Type like Airport, NDB or VOR */
-  QString getMapObjectTypeNameShort() const;
+  QString getMapTypeNameShort() const;
 
   /* Display text usable for menu items */
   QString getDisplayText(int elideName = 100) const;
@@ -219,7 +225,7 @@ public:
   map::MapUserpointRoute getUserpointRoute() const;
 
   /* Get Waypoint or empty object if not assigned. Use position.isValid to check for empty */
-  map::MapRunwayEnd getRunwayEnd() const
+  const map::MapRunwayEnd& getRunwayEnd() const
   {
     return runwayEnd;
   }
@@ -254,6 +260,11 @@ public:
   bool isValidWaypoint() const
   {
     return validWaypoint;
+  }
+
+  bool isValidPos() const
+  {
+    return getPosition().isValid();
   }
 
   /* @return false if this is default constructed */
@@ -364,7 +375,12 @@ public:
   }
 
   /* true if airway given but not found in database. Also true if one-way direction is violated */
-  bool isAirwaySetAndInvalid(float altitudeFt, QStringList *errors = nullptr, bool *trackError = nullptr) const;
+  bool isAirwaySetAndInvalid(float minAltLegFt, float maxAltLegFt, QStringList *errors = nullptr, bool *trackError = nullptr) const;
+
+  bool isAirwaySetAndInvalid(float legAltFt, QStringList *errors = nullptr, bool *trackError = nullptr) const
+  {
+    return isAirwaySetAndInvalid(legAltFt, legAltFt, errors, trackError);
+  }
 
   bool isTrack() const
   {
@@ -389,6 +405,13 @@ public:
   /* Build leg labels also depending on procedure flags. Uses start course and normal declination (not VOR) */
   QStringList buildLegText(bool dist, bool magCourseFlag, bool trueCourseFlag, bool narrow) const;
   static QStringList buildLegText(float distance, float courseMag, float courseTrue, bool narrow);
+
+  /* Course to waypoint at end of leg. Either uses geometry course or saved course if geometry is not valid */
+  float getGeometryEndCourse() const;
+
+  /* Course from waypoint at previous leg or at the beginning of this leg.
+   * Either uses geometry course of this or saved course if geometry is not valid */
+  float getGeometryStartCourse() const;
 
 private:
   friend QDebug operator<<(QDebug out, const RouteLeg& leg);

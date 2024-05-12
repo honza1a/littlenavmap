@@ -39,7 +39,18 @@
 UserdataSearch::UserdataSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId tabWidgetIndex)
   : SearchBaseTable(parent, tableView, new ColumnList("userdata", "userdata_id"), tabWidgetIndex)
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
+  /* *INDENT-OFF* */
+  ui->pushButtonNavHelpSearch->setToolTip(
+    "<p>All set search conditions have to match.</p>"
+    "<p>Search tips for text fields: </p>"
+    "<ul>"
+      "<li>Default is search for userpoints that contain the entered text.</li>"
+      "<li>Use &quot;*&quot; as a placeholder for any text. </li>"
+      "<li>Prefix with &quot;-&quot; as first character to negate search.</li>"
+      "<li>Use double quotes like &quot;TAU&quot; or &quot;Sindal&quot; to force exact search.</li>"
+      "<li>Only ident field: Enter a space separated list of idents to look for more than one navaid.</li>"
+    "</ul>");
+  /* *INDENT-ON* */
 
   // All widgets that will have their state and visibility saved and restored
   userdataSearchWidgets =
@@ -47,7 +58,8 @@ UserdataSearch::UserdataSearch(QMainWindow *parent, QTableView *tableView, si::T
     ui->horizontalLayoutUserdata,
     ui->horizontalLayoutUserdataMore,
     ui->lineUserdataMore,
-    ui->actionUserdataSearchShowMoreOptions
+    ui->actionUserdataSearchShowMoreOptions,
+    ui->actionSearchUserdataFollowSelection
   };
 
   // All drop down menu actions
@@ -73,16 +85,16 @@ UserdataSearch::UserdataSearch(QMainWindow *parent, QTableView *tableView, si::T
   append(Column("last_edit_timestamp", tr("Last Change")).defaultSort().defaultSortOrder(Qt::DescendingOrder)).
   append(Column("ident", ui->lineEditUserdataIdent, tr("Ident")).filter()).
   append(Column("region", ui->lineEditUserdataRegion, tr("Region")).filter()).
-  append(Column("name", ui->lineEditUserdataName, tr("Name")).filter()).
-  append(Column("tags", ui->lineEditUserdataTags, tr("Tags")).filter()).
-  append(Column("description", ui->lineEditUserdataDescription, tr("Remarks")).filter()).
+  append(Column("name", ui->lineEditUserdataName, tr("Name")).filter(true, ui->actionUserdataSearchShowMoreOptions)).
+  append(Column("tags", ui->lineEditUserdataTags, tr("Tags")).filter(true, ui->actionUserdataSearchShowMoreOptions)).
+  append(Column("description", ui->lineEditUserdataDescription, tr("Remarks")).filter(true, ui->actionUserdataSearchShowMoreOptions)).
   append(Column("temp").hidden()).
-
   append(Column("visible_from", tr("Visible from\n%dist%")).convertFunc(Unit::distNmF)).
   append(Column("lonx", tr("Longitude"))).
   append(Column("laty", tr("Latitude"))).
   append(Column("altitude", tr("Elevation\n%alt%")).convertFunc(Unit::altFeetF)).
-  append(Column("import_file_path", ui->lineEditUserdataFilepath, tr("Imported\nfrom File")).filter())
+  append(Column("import_file_path", ui->lineEditUserdataFilepath,
+                tr("Imported\nfrom File")).filter(true, ui->actionUserdataSearchShowMoreOptions))
   ;
 
   // Add icon delegate for the ident column
@@ -104,8 +116,6 @@ void UserdataSearch::connectSearchSlots()
 {
   SearchBaseTable::connectSearchSlots();
 
-  Ui::MainWindow *ui = NavApp::getMainUi();
-
   // Small push buttons on top
   connect(ui->pushButtonUserdataClearSelection, &QPushButton::clicked,
           this, &SearchBaseTable::nothingSelectedTriggered);
@@ -123,11 +133,8 @@ void UserdataSearch::connectSearchSlots()
   ui->toolButtonUserdata->addActions({ui->actionUserdataSearchShowMoreOptions});
 
   // Drop down menu actions
-  connect(ui->actionUserdataSearchShowMoreOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->horizontalLayoutUserdataMore}, state,
-                                              {ui->lineUserdataMore});
-    updateButtonMenu();
+  connect(ui->actionUserdataSearchShowMoreOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->horizontalLayoutUserdataMore, ui->lineUserdataMore, state, false /* distanceSearch */);
   });
 
   ui->actionUserdataEdit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -169,25 +176,14 @@ void UserdataSearch::saveState()
 {
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET);
   widgetState.save(userdataSearchWidgets);
-
-  Ui::MainWindow *ui = NavApp::getMainUi();
-  widgetState.save({ui->horizontalLayoutUserdata, ui->horizontalLayoutUserdataMore});
 }
 
 void UserdataSearch::restoreState()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET);
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH)
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH && !NavApp::isSafeMode())
   {
     widgetState.restore(userdataSearchWidgets);
-
-    restoreViewState(false);
-
-    // Need to block signals here to avoid unwanted behavior (will enable
-    // distance search and avoid saving of wrong view widget state)
-    widgetState.setBlockSignals(true);
-    widgetState.restore({ui->horizontalLayoutUserdata, ui->horizontalLayoutUserdataMore});
 
     if(!widgetState.contains(ui->comboBoxUserdataType))
     {
@@ -206,16 +202,18 @@ void UserdataSearch::restoreState()
     ui->comboBoxUserdataType->setCurrentIndex(0);
     ui->comboBoxUserdataType->clearEditText();
   }
+
+  finishRestore();
 }
 
 void UserdataSearch::saveViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET).save(NavApp::getMainUi()->tableViewUserdata);
+  atools::gui::WidgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET).save(ui->tableViewUserdata);
 }
 
 void UserdataSearch::restoreViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET).restore(NavApp::getMainUi()->tableViewUserdata);
+  atools::gui::WidgetState(lnm::SEARCHTAB_USERDATA_VIEW_WIDGET).restore(ui->tableViewUserdata);
 }
 
 /* Callback for the controller. Will be called for each table cell and should return a formatted value */
@@ -284,7 +282,7 @@ QString UserdataSearch::formatModelData(const Column *col, const QVariant& displ
 
 void UserdataSearch::getSelectedMapObjects(map::MapResult& result) const
 {
-  if(!NavApp::getMainUi()->dockWidgetSearch->isVisible())
+  if(!ui->dockWidgetSearch->isVisible())
     return;
 
   // Build a SQL record with all available fields
@@ -328,17 +326,13 @@ void UserdataSearch::setCallbacks()
  * action depending on other action states */
 void UserdataSearch::updateButtonMenu()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
-
-  atools::gui::util::changeStarIndication(ui->actionUserdataSearchShowMoreOptions,
-                                          atools::gui::util::anyWidgetChanged(
-                                            {ui->horizontalLayoutUserdataMore}));
+  atools::gui::util::changeIndication(ui->actionUserdataSearchShowMoreOptions,
+                                      atools::gui::util::anyWidgetChanged({ui->horizontalLayoutUserdataMore}));
 }
 
 void UserdataSearch::updatePushButtons()
 {
   QItemSelectionModel *sm = view->selectionModel();
-  Ui::MainWindow *ui = NavApp::getMainUi();
   ui->pushButtonUserdataClearSelection->setEnabled(sm != nullptr && sm->hasSelection());
   ui->pushButtonUserdataDel->setEnabled(sm != nullptr && sm->hasSelection());
   ui->pushButtonUserdataEdit->setEnabled(sm != nullptr && sm->hasSelection());
@@ -350,5 +344,5 @@ void UserdataSearch::updatePushButtons()
 
 QAction *UserdataSearch::followModeAction()
 {
-  return NavApp::getMainUi()->actionSearchUserdataFollowSelection;
+  return ui->actionSearchUserdataFollowSelection;
 }

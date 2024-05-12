@@ -22,7 +22,6 @@
 #include "geo/calculations.h"
 #include "mapgui/maplayersettings.h"
 #include "mapgui/mapscale.h"
-#include "mapgui/mapthemehandler.h"
 #include "mapgui/mapwidget.h"
 #include "mappainter/mappainteraircraft.h"
 #include "mappainter/mappainterairport.h"
@@ -35,7 +34,7 @@
 #include "mappainter/mappainterroute.h"
 #include "mappainter/mappaintership.h"
 #include "mappainter/mappaintertop.h"
-#include "mappainter/mappaintertrack.h"
+#include "mappainter/mappaintertrail.h"
 #include "mappainter/mappainteruser.h"
 #include "mappainter/mappainterweather.h"
 #include "mappainter/mappainterwind.h"
@@ -56,6 +55,7 @@ MapPaintLayer::MapPaintLayer(MapPaintWidget *widget)
   : mapPaintWidget(widget)
 {
   verbose = atools::settings::Settings::instance().getAndStoreValue(lnm::OPTIONS_MAP_LAYER_DEBUG, false).toBool();
+  verboseDraw = atools::settings::Settings::instance().getAndStoreValue(lnm::OPTIONS_MAP_LAYER_DEBUG_DRAW, false).toBool();
 
   // Create the layer configuration
   initMapLayerSettings();
@@ -71,7 +71,7 @@ MapPaintLayer::MapPaintLayer(MapPaintWidget *widget)
   mapPainterMark = new MapPainterMark(mapPaintWidget, mapScale, &context);
   mapPainterRoute = new MapPainterRoute(mapPaintWidget, mapScale, &context);
   mapPainterAircraft = new MapPainterAircraft(mapPaintWidget, mapScale, &context);
-  mapPainterTrack = new MapPainterTrack(mapPaintWidget, mapScale, &context);
+  mapPainterTrack = new MapPainterTrail(mapPaintWidget, mapScale, &context);
   mapPainterShip = new MapPainterShip(mapPaintWidget, mapScale, &context);
   mapPainterUser = new MapPainterUser(mapPaintWidget, mapScale, &context);
   mapPainterAltitude = new MapPainterAltitude(mapPaintWidget, mapScale, &context);
@@ -190,7 +190,40 @@ map::MapAirspaceFilter MapPaintLayer::getShownAirspacesTypesByLayer() const
   if(!mapLayer->isAirspaceOther())
     filter.types &= ~map::AIRSPACE_OTHER;
 
+  filter.flags.setFlag(map::AIRSPACE_NO_MULTIPLE_Z, OptionData::instance().getFlags().testFlag(opts::MAP_AIRSPACE_NO_MULT_Z));
+
   return filter;
+}
+
+map::MapAirspaceTypes MapPaintLayer::getShownAirspaceTextsByLayer() const
+{
+  map::MapAirspaceTypes types = map::AIRSPACE_NONE;
+
+  if(mapLayer != nullptr)
+  {
+    if(mapLayer->isAirspaceIcaoText())
+      types |= map::AIRSPACE_CLASS_ICAO;
+
+    if(mapLayer->isAirspaceFgText())
+      types |= map::AIRSPACE_CLASS_FG;
+
+    if(mapLayer->isAirspaceFirUirText())
+      types |= map::AIRSPACE_FIR_UIR;
+
+    if(mapLayer->isAirspaceCenterText())
+      types |= map::AIRSPACE_CENTER;
+
+    if(mapLayer->isAirspaceRestrictedText())
+      types |= map::AIRSPACE_RESTRICTED;
+
+    if(mapLayer->isAirspaceSpecialText())
+      types |= map::AIRSPACE_SPECIAL;
+
+    if(mapLayer->isAirspaceOtherText())
+      types |= map::AIRSPACE_OTHER;
+  }
+
+  return types;
 }
 
 void MapPaintLayer::initQueries()
@@ -296,6 +329,7 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       context.objectTypes = objectTypes;
       context.objectDisplayTypes = objectDisplayTypes;
       context.airspaceFilterByLayer = getShownAirspacesTypesByLayer();
+      context.airspaceTextsByLayer = getShownAirspaceTextsByLayer();
       context.viewContext = mapPaintWidget->viewContext();
       context.drawFast = mapScrollDetail == opts::DETAIL_LOW && mapPaintWidget->viewContext() == Marble::Animation;
       context.lazyUpdate = mapScrollDetail != opts::DETAIL_HIGH && mapPaintWidget->viewContext() == Marble::Animation;
@@ -307,7 +341,7 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       context.userPointTypesAll = NavApp::getUserdataController()->getAllTypes();
       context.userPointTypeUnknown = NavApp::getUserdataController()->isSelectedUnknownType();
       context.zoomDistanceMeter = static_cast<float>(mapPaintWidget->distance() * 1000.);
-      context.darkMap = NavApp::getMapThemeHandler()->isDarkTheme(mapPaintWidget->getCurrentThemeId());
+      context.darkMap = NavApp::isDarkMapTheme();
       context.paintCopyright = mapPaintWidget->isPaintCopyright();
       context.currentDistanceMarkerId = NavApp::getMapWidgetGui()->getCurrentDistanceMarkerId();
 
@@ -340,6 +374,7 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       context.textSizeAirport = od.getDisplayTextSizeAirport() / 100.f;
       context.textSizeFlightplan = od.getDisplayTextSizeFlightplan() / 100.f;
       context.textSizeNavaid = od.getDisplayTextSizeNavaid() / 100.f;
+      context.textSizeAirspace = od.getDisplayTextSizeAirspace() / 100.f;
       context.textSizeUserpoint = od.getDisplayTextSizeUserpoint() / 100.f;
       context.textSizeAirway = od.getDisplayTextSizeAirway() / 100.f;
       context.textSizeCompassRose = od.getDisplayTextSizeCompassRose() / 100.f;
@@ -366,6 +401,7 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       context.dispOptsRoute = od.getDisplayOptionsRoute();
       context.flags = od.getFlags();
       context.flags2 = od.getFlags2();
+      context.verboseDraw = verboseDraw;
 
       context.weatherSource = weatherSource;
       context.visibleWidget = mapPaintWidget->isVisibleWidget();
@@ -373,6 +409,9 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       // Prepare index for all navaids drawn by route - needed for context menu and tooltips
       context.routeDrawnNavaids = mapPaintWidget->getRouteDrawnNavaids();
       context.routeDrawnNavaids->clear();
+
+      context.startTimer("All");
+      setNoAntiAliasFont(&context);
 
       // ====================================
       // Get all waypoints from the route and add them to the map to avoid duplicate drawing
@@ -384,22 +423,26 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
         int passedRouteLeg = context.flags2.testFlag(opts2::MAP_ROUTE_DIM_PASSED) ? activeRouteLeg : 0;
 
         // Check starting with previous leg of active for normal legs ====================
+        bool drawAlternate = context.objectDisplayTypes.testFlag(map::FLIGHTPLAN_ALTERNATE);
         for(int i = passedRouteLeg - 1; i < route->size(); i++)
         {
           if(i < 0)
             continue;
 
           const RouteLeg& routeLeg = route->value(i);
-          map::MapTypes type = routeLeg.getMapObjectType();
+          map::MapTypes type = routeLeg.getMapType();
           if(type == map::AIRPORT || type == map::VOR || type == map::NDB || type == map::WAYPOINT)
-            context.routeProcIdMap.insert(map::MapObjectRef(routeLeg.getId(), type));
+          {
+            if(drawAlternate || !routeLeg.isAlternate())
+              context.routeProcIdMap.insert(map::MapRef(routeLeg.getId(), type));
+          }
         }
 
         // Add procedure navaids beginning from previous leg ==============
         for(int i = std::max(passedRouteLeg - 1, 0); i < route->size(); i++)
         {
           const RouteLeg& routeLeg = route->value(i);
-          map::MapTypes type = routeLeg.getMapObjectType();
+          map::MapTypes type = routeLeg.getMapType();
           if(type == map::PROCEDURE)
           {
             if(!routeLeg.getProcedureLeg().isMissed() || context.objectTypes & map::MISSED_APPROACH)
@@ -420,7 +463,7 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
         for(int i = passedRouteLeg; i < route->size(); i++)
         {
           const RouteLeg& routeLeg = route->value(i);
-          map::MapTypes type = routeLeg.getMapObjectType();
+          map::MapTypes type = routeLeg.getMapType();
           if(type == map::PROCEDURE)
           {
             if(!routeLeg.getProcedureLeg().isMissed() || context.objectTypes & map::MISSED_APPROACH)
@@ -441,7 +484,6 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       // ====================================
       // Get navaids from procedure highlight to avoid duplicate drawing
       // These will be drawn in the procedure preview or flight plan instead of the navaid painter
-
       if(context.mapLayerRoute->isApproach())
       {
         // Procedure legs from "show all" function ======================================
@@ -488,18 +530,10 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       }
 
       // Set render hints depending on context (moving, still) =====================
-      if(mapPaintWidget->viewContext() == Marble::Still)
-      {
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setRenderHint(QPainter::TextAntialiasing, true);
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-      }
-      else if(mapPaintWidget->viewContext() == Marble::Animation)
-      {
-        painter->setRenderHint(QPainter::Antialiasing, false);
-        painter->setRenderHint(QPainter::TextAntialiasing, false);
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-      }
+      bool still = mapPaintWidget->viewContext() == Marble::Still;
+      painter->setRenderHint(QPainter::Antialiasing, still);
+      painter->setRenderHint(QPainter::TextAntialiasing, still);
+      painter->setRenderHint(QPainter::SmoothPixmapTransform, still);
 
       // =========================================================================
       // Draw ====================================
@@ -514,8 +548,6 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       {
         if(!context.isObjectOverflow())
           mapPainterAirspace->render();
-
-        mapPainterAirport->collectVisibleAirports(context.visibleAirportIds);
 
         if(!context.isObjectOverflow())
           mapPainterIls->render();
@@ -563,6 +595,9 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
 
       mapPainterMark->render();
 
+      resetNoAntiAliasFont(&context);
+      context.endTimer("All");
+
       mapPainterTop->render();
     } // if(!noRender())
 
@@ -571,4 +606,30 @@ bool MapPaintLayer::render(GeoPainter *painter, ViewportParams *viewport, const 
       mapcolors::darkenPainterRect(*painter);
   }
   return true;
+}
+
+void MapPaintLayer::setNoAntiAliasFont(PaintContext *context)
+{
+  if(context->viewContext == Marble::Animation)
+  {
+    QFont font = context->painter->font();
+    savedFontStrategy = font.styleStrategy();
+    font.setStyleStrategy(QFont::NoAntialias);
+    context->painter->setFont(font);
+
+    savedDefaultFontStrategy = context->defaultFont.styleStrategy();
+    context->defaultFont.setStyleStrategy(QFont::NoAntialias);
+  }
+}
+
+void MapPaintLayer::resetNoAntiAliasFont(PaintContext *context)
+{
+  if(context->viewContext == Marble::Animation)
+  {
+    QFont font = context->painter->font();
+    font.setStyleStrategy(savedFontStrategy);
+    context->painter->setFont(font);
+
+    context->defaultFont.setStyleStrategy(savedDefaultFontStrategy);
+  }
 }

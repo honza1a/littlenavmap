@@ -207,11 +207,14 @@ public:
   /* Removes all range rings and distance measurement lines */
   void clearAllMarkers(map::MapTypes types);
 
+  void loadAircraftTrail(const QString& filename);
+  void appendAircraftTrail(const QString& filename);
+
   /* Delete the current aircraft track. Will not stop collecting new track points */
-  void deleteAircraftTrack();
+  void deleteAircraftTrail();
 
   /* Clear separate track collected for the logbook */
-  void deleteAircraftTrackLogbook();
+  void deleteAircraftTrailLogbook();
 
   /* Clear all entries and reset current index */
   void clearHistory();
@@ -270,11 +273,17 @@ signals:
   void routeAdd(int id, const atools::geo::Pos& userPos, map::MapTypes type, int legIndex);
   void routeReplace(int id, const atools::geo::Pos& userPos, map::MapTypes type, int oldIndex);
 
+  /* Direct to flight plan waypoint, navaid or position */
+  void directTo(int id, const atools::geo::Pos& userPos, map::MapTypes type, int legIndex);
+
   /* Show a map object in the search panel (context menu) */
   void showInSearch(map::MapTypes type, const atools::sql::SqlRecord& record, bool select);
 
   /* Show information about objects from single click or context menu */
   void showInformation(const map::MapResult& result);
+
+  /* Select result in flight plan table */
+  void showInRoute(int index);
 
   /* Add user point and pass result to it so it can prefill the dialog */
   void addUserpointFromMap(const map::MapResult& result, const atools::geo::Pos& pos, bool airportAddon);
@@ -338,7 +347,10 @@ private:
   void connectOverlayMenus();
 
   /* Show information from context menu or single click */
-  void handleInfoClick(QPoint point);
+  void handleInfoClick(const QPoint& point);
+
+  /* Highlight flight plan leg if enabled. */
+  void handleRouteClick(const QPoint& point);
 
   /* Scroll and zoom for touchscreen area mode */
   bool handleTouchAreaClick(QMouseEvent *event);

@@ -116,8 +116,8 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
 #endif
 
   HtmlBuilder html(false);
-  HtmlInfoBuilder info(mainWindow, NavApp::getMapPaintWidgetGui(),
-                       false /* infoParam */, false /* infoParam */, opts.testFlag(optsd::TOOLTIP_VERBOSE));
+  MapPaintWidget *mapPaintWidget = NavApp::getMapPaintWidgetGui();
+  HtmlInfoBuilder info(mainWindow, mapPaintWidget, false /* infoParam */, false /* infoParam */, opts.testFlag(optsd::TOOLTIP_VERBOSE));
   int numEntries = 0;
   bool bearing = true, // Suppress bearing for user aircraft
        distance = true, // No distance to last flight plan leg for route legs
@@ -133,9 +133,7 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
     if(mapSearchResult.userAircraft.isValid())
     {
       if(checkText(html))
-      {
         overflow = true;
-      }
       else
       {
         if(!html.isEmpty())
@@ -220,7 +218,6 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
   }
 
   // User features / marks ===================================================================
-
   if(opts.testFlag(optsd::TOOLTIP_MARKS))
   {
     // Traffic pattern
@@ -277,6 +274,49 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
     }
   }
 
+  // Departure parking ===========================================================================
+  if(!overflow && opts.testFlag(optsd::TOOLTIP_AIRPORT) && mapSearchResult.parkings.size() == 1)
+  {
+    // Do not show distance if departure parking is the only one in the list
+    if(mapSearchResult.parkings.constFirst().id == route.getDepartureParking().id)
+      distance = false; // do not show distance to last leg
+  }
+
+  // Aircraft trail point ===========================================================================
+  if(opts.testFlag(optsd::TOOLTIP_AIRCRAFT_TRAIL))
+  {
+    if(!overflow && mapSearchResult.trailSegment.isValid())
+    {
+      if(checkText(html))
+        overflow = true;
+      else
+      {
+        if(!html.isEmpty())
+          html.textBar(TEXT_BAR_LENGTH);
+
+        info.aircraftTrailText(mapSearchResult.trailSegment, html, false /* logbook */);
+        distance = false; // do not show distance to last leg
+        numEntries++;
+      }
+    }
+
+    // Aircraft trail point from logbook preview ===========================================================================
+    if(!overflow && mapSearchResult.trailSegmentLog.isValid())
+    {
+      if(checkText(html))
+        overflow = true;
+      else
+      {
+        if(!html.isEmpty())
+          html.textBar(TEXT_BAR_LENGTH);
+
+        info.aircraftTrailText(mapSearchResult.trailSegmentLog, html, true /* logbook */);
+        distance = false; // do not show distance to last leg
+        numEntries++;
+      }
+    }
+  }
+
   // Navaids ===========================================================================
   if(opts.testFlag(optsd::TOOLTIP_NAVAID))
   {
@@ -317,9 +357,7 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
       if(!winds.isEmpty())
       {
         if(checkText(html))
-        {
           overflow = true;
-        }
         else
         {
           if(!html.isEmpty())
@@ -347,7 +385,7 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
     if(opts.testFlag(optsd::TOOLTIP_AIRSPACE))
     {
       // Put all online airspace on top of the list to have consistent ordering with menus and info windows
-      MapResult res = mapSearchResult.moveOnlineAirspacesToFront();
+      const MapResult res = mapSearchResult.moveOnlineAirspacesToFront();
 
       for(const MapAirspace& airspace : res.airspaces)
       {
@@ -371,9 +409,8 @@ QString MapTooltip::buildTooltip(const map::MapResult& mapSearchResult, const at
     }
   }
 
-  QString str;
-
   // Prepend distance and bearing information ================================
+  QString str;
   if(!html.isEmpty())
   {
     HtmlBuilder temp = html.cleared();

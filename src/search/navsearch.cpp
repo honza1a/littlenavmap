@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -41,7 +41,19 @@
 NavSearch::NavSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId tabWidgetIndex)
   : SearchBaseTable(parent, tableView, new ColumnList("nav_search", "nav_search_id"), tabWidgetIndex)
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
+  /* *INDENT-OFF* */
+  ui->pushButtonNavHelpSearch->setToolTip(
+    "<p>All set search conditions have to match.</p>"
+    "<p>Search tips for text fields: </p>"
+    "<ul>"
+      "<li>Default is search for navaids that contain the entered text.</li>"
+      "<li>Use &quot;*&quot; as a placeholder for any text. </li>"
+      "<li>Prefix with &quot;-&quot; as first character to negate search.</li>"
+      "<li>Only ident field: Use double quotes like &quot;TAU&quot; or &quot;BOMBI&quot; to force exact search.</li>"
+      "<li>Only ident field: Enter a space separated list of idents to look for more than one navaid.</li>"
+    "</ul>");
+  /* *INDENT-ON* */
+
 
   // All widgets that will have their state and visibility saved and restored
   navSearchWidgets =
@@ -49,6 +61,10 @@ NavSearch::NavSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId
     ui->horizontalLayoutNavNameSearch,
     ui->gridLayoutNavSearchType,
     ui->horizontalLayoutNavScenerySearch,
+    ui->horizontalLayoutNavDistanceSearch,
+
+    ui->actionSearchNavaidFollowSelection,
+
     ui->lineNavDistanceSearch,
     ui->lineNavScenerySearch,
     ui->actionNavSearchShowAllOptions,
@@ -67,9 +83,9 @@ NavSearch::NavSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId
   };
 
   // Show/hide all search options menu action
-  connect(ui->actionNavSearchShowAllOptions, &QAction::toggled, this, [ = ](bool state)
+  connect(ui->actionNavSearchShowAllOptions, &QAction::toggled, this, [this](bool state)
   {
-    for(QAction *a: navSearchMenuActions)
+    for(QAction *a: qAsConst(navSearchMenuActions))
       a->setChecked(state);
   });
 
@@ -152,9 +168,11 @@ NavSearch::NavSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId
   append(Column("range", ui->spinBoxNavMaxRangeSearch, tr("Range\n%dist%")).
          filter().condition(">").convertFunc(Unit::distNmF)).
   append(Column("mag_var", tr("Mag.\nDecl.°"))).
-  append(Column("altitude", tr("Elevation\n%alt%")).convertFunc(Unit::altFeetF)).
-  append(Column("scenery_local_path", ui->lineEditNavScenerySearch, tr("Scenery Path")).filter()).
-  append(Column("bgl_filename", ui->lineEditNavFileSearch, tr("File")).filter()).
+  append(Column("altitude", tr("Elev.\n%alt%")).convertFunc(Unit::altFeetF)).
+  append(Column("scenery_local_path", ui->lineEditNavScenerySearch,
+                tr("Scenery Path")).filter(true, ui->actionNavSearchShowSceneryOptions)).
+  append(Column("bgl_filename", ui->lineEditNavFileSearch,
+                tr("File")).filter(true, ui->actionNavSearchShowSceneryOptions)).
   append(Column("waypoint_num_victor_airway").hidden()).
   append(Column("waypoint_num_jet_airway").hidden()).
   append(Column("vor_id").hidden()).
@@ -172,8 +190,9 @@ NavSearch::NavSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId
   view->setItemDelegateForColumn(columns->getColumn("ident")->getIndex(), iconDelegate);
 
   // Assign the callback which builds a part of the where clause for the airport search ======================
-  using namespace std::placeholders;
-  columns->setQueryBuilder(QueryBuilder(std::bind(&NavSearch::navQueryBuilderFunc, this, _1), ui->lineEditNavIcaoSearch, {"ident"}));
+  columns->setQueryBuilder(QueryBuilder(std::bind(&SearchBaseTable::queryBuilderFunc, this, std::placeholders::_1),
+                                        {QueryWidget(ui->lineEditNavIcaoSearch, {"ident"},
+                                                     false /* allowOverride */, false /* allowExclude */)}));
 
   SearchBaseTable::initViewAndController(NavApp::getDatabaseNav());
 
@@ -190,11 +209,8 @@ void NavSearch::connectSearchSlots()
 {
   SearchBaseTable::connectSearchSlots();
 
-  Ui::MainWindow *ui = NavApp::getMainUi();
-
   // Small push buttons on top
-  connect(ui->pushButtonNavSearchClearSelection, &QPushButton::clicked,
-          this, &SearchBaseTable::nothingSelectedTriggered);
+  connect(ui->pushButtonNavSearchClearSelection, &QPushButton::clicked, this, &SearchBaseTable::nothingSelectedTriggered);
   connect(ui->pushButtonNavSearchReset, &QPushButton::clicked, this, &SearchBaseTable::resetSearch);
 
   installEventFilterForWidget(ui->lineEditNavIcaoSearch);
@@ -210,122 +226,41 @@ void NavSearch::connectSearchSlots()
 
   // Connect widgets to the controller
   SearchBaseTable::connectSearchWidgets();
-  ui->toolButtonNavSearch->addActions({ui->actionNavSearchShowAllOptions,
-                                       ui->actionNavSearchShowTypeOptions,
-                                       ui->actionNavSearchShowDistOptions,
-                                       ui->actionNavSearchShowSceneryOptions});
+  ui->toolButtonNavSearch->addActions(navSearchMenuActions);
+
+  QMenu *menu = new QMenu(ui->toolButtonNavSearch);
+  ui->toolButtonNavSearch->setMenu(menu);
+  menu->addAction(navSearchMenuActions.first());
+  menu->addSeparator();
+  menu->addActions(navSearchMenuActions.mid(1));
 
   // Drop down menu actions
-  connect(ui->actionNavSearchShowTypeOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->gridLayoutNavSearchType}, state,
-                                              {ui->lineNavTypeSearch});
-    updateButtonMenu();
+  connect(ui->actionNavSearchShowTypeOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->gridLayoutNavSearchType, ui->lineNavTypeSearch, state, false /* distanceSearch */);
   });
 
-  connect(ui->actionNavSearchShowDistOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->horizontalLayoutNavDistanceSearch}, state,
-                                              {ui->lineNavDistanceSearch});
-    updateButtonMenu();
+  connect(ui->actionNavSearchShowDistOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->horizontalLayoutNavDistanceSearch, ui->lineNavDistanceSearch, state, true /* distanceSearch */);
   });
-  connect(ui->actionNavSearchShowSceneryOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->horizontalLayoutNavScenerySearch}, state,
-                                              {ui->lineNavScenerySearch});
-    updateButtonMenu();
+
+  connect(ui->actionNavSearchShowSceneryOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->horizontalLayoutNavScenerySearch, ui->lineNavScenerySearch, state, false /* distanceSearch */);
   });
-}
-
-QueryBuilderResult NavSearch::navQueryBuilderFunc(QWidget *widget)
-{
-  if(widget != nullptr)
-  {
-    // Widget list is always one line edit as registered in airport search
-    QLineEdit *lineEdit = dynamic_cast<QLineEdit *>(widget);
-    if(lineEdit != nullptr)
-    {
-      QStringList textList = lineEdit->text().simplified().split(" "), queryList;
-      bool overrideQuery = false;
-
-      for(QString text : textList)
-      {
-        text = text.simplified();
-        bool exclude = false;
-
-        if(text.startsWith('"') && text.endsWith('"'))
-          text = text.chopped(1).mid(1);
-        else
-        {
-          // Adjust the query string to SQL
-          // Replace "*" with "%" for SQL
-          if(text.contains(QChar('*')))
-            text = text.replace(QChar('*'), QChar('%'));
-          else if(!text.isEmpty())
-            // Default is string starts with text
-            text = text % "%";
-
-          // Exclude if prefixed with "-"
-          if(text.startsWith('-'))
-          {
-            text = text.mid(1);
-            exclude = true;
-          }
-        }
-
-        if(!text.isEmpty())
-        {
-          // Escape single quotes to avoid malformed query and resulting exception
-          text.replace("'", "''");
-          QString query;
-
-          if(exclude)
-            // Use exclude on ident column only
-            query = "(ident not like '" % text % "')";
-          else
-            // Cannot use "arg" to build string since percent confuses QString
-            query = "(ident like '" % text % "')";
-
-          if(!query.isEmpty())
-            queryList.append(query);
-        } // if(!text.isEmpty())
-      } // for(const QString& text : textList)
-
-      if(!queryList.isEmpty())
-        return QueryBuilderResult("(" % queryList.join(" or ") % ")", overrideQuery);
-    }
-  }
-  return QueryBuilderResult();
 }
 
 void NavSearch::saveState()
 {
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_NAV_WIDGET);
   widgetState.save(navSearchWidgets);
-
-  Ui::MainWindow *ui = NavApp::getMainUi();
-  widgetState.save({ui->horizontalLayoutNavDistanceSearch, ui->actionSearchNavaidFollowSelection});
-  saveViewState(ui->checkBoxNavDistSearch->isChecked());
+  saveViewState(viewStateDistSearch);
 }
 
 void NavSearch::restoreState()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_NAV_WIDGET);
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH)
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH && !NavApp::isSafeMode())
   {
     widgetState.restore(navSearchWidgets);
-
-    // Need to block signals here to avoid unwanted behavior (will enable
-    // distance search and avoid saving of wrong view widget state)
-    widgetState.setBlockSignals(true);
-    widgetState.restore({ui->horizontalLayoutNavDistanceSearch, ui->actionSearchNavaidFollowSelection});
-    restoreViewState(ui->checkBoxNavDistSearch->isChecked());
-
-    bool distSearchChecked = ui->checkBoxNavDistSearch->isChecked();
-    if(distSearchChecked)
-      // Activate distance search if it was active - otherwise leave default behavior
-      distanceSearchChanged(distSearchChecked, false /* Change view state */);
 
     QSpinBox *minDistanceWidget = columns->getMinDistanceWidget();
     QSpinBox *maxDistanceWidget = columns->getMaxDistanceWidget();
@@ -338,7 +273,7 @@ void NavSearch::restoreState()
     atools::convertList(objList, navSearchMenuActions);
     widgetState.restore(objList);
 
-    atools::gui::WidgetState(lnm::SEARCHTAB_NAV_VIEW_WIDGET).restore(NavApp::getMainUi()->tableViewNavSearch);
+    atools::gui::WidgetState(lnm::SEARCHTAB_NAV_VIEW_WIDGET).restore(ui->tableViewNavSearch);
   }
 
   if(!atools::settings::Settings::instance().childGroups().contains("SearchPaneNav"))
@@ -348,21 +283,29 @@ void NavSearch::restoreState()
     ui->actionNavSearchShowDistOptions->setChecked(false);
     ui->actionNavSearchShowSceneryOptions->setChecked(false);
   }
+
+  finishRestore();
 }
 
-void NavSearch::saveViewState(bool distSearchActive)
+void NavSearch::saveViewState(bool distanceSearchState)
 {
+#ifdef DEBUG_INFORMATION
+  qDebug() << Q_FUNC_INFO << "distSearchActive" << distanceSearchState;
+#endif
+
   // Save layout for normal and distance search separately
-  atools::gui::WidgetState(
-    distSearchActive ? lnm::SEARCHTAB_NAV_VIEW_DIST_WIDGET : lnm::SEARCHTAB_NAV_VIEW_WIDGET
-    ).save(NavApp::getMainUi()->tableViewNavSearch);
+  atools::gui::WidgetState(distanceSearchState ? lnm::SEARCHTAB_NAV_VIEW_DIST_WIDGET : lnm::SEARCHTAB_NAV_VIEW_WIDGET).save(
+    ui->tableViewNavSearch);
 }
 
-void NavSearch::restoreViewState(bool distSearchActive)
+void NavSearch::restoreViewState(bool distanceSearchState)
 {
-  atools::gui::WidgetState(
-    distSearchActive ? lnm::SEARCHTAB_NAV_VIEW_DIST_WIDGET : lnm::SEARCHTAB_NAV_VIEW_WIDGET
-    ).restore(NavApp::getMainUi()->tableViewNavSearch);
+#ifdef DEBUG_INFORMATION
+  qDebug() << Q_FUNC_INFO << "distSearchActive" << distanceSearchState;
+#endif
+
+  atools::gui::WidgetState(distanceSearchState ? lnm::SEARCHTAB_NAV_VIEW_DIST_WIDGET : lnm::SEARCHTAB_NAV_VIEW_WIDGET).restore(
+    ui->tableViewNavSearch);
 }
 
 /* Callback for the controller. Will be called for each table cell and should return a formatted value */
@@ -424,7 +367,7 @@ QString NavSearch::formatModelData(const Column *col, const QVariant& displayRol
       return "Invalid";
   }
   else if(col->getColumnName() == "mag_var")
-    return map::magvarText(displayRoleValue.toFloat());
+    return map::magvarText(displayRoleValue.toFloat(), true /* shortText */, false /* degSign */);
   else if(displayRoleValue.type() == QVariant::Int || displayRoleValue.type() == QVariant::UInt)
     return QLocale().toString(displayRoleValue.toInt());
   else if(displayRoleValue.type() == QVariant::LongLong || displayRoleValue.type() == QVariant::ULongLong)
@@ -437,7 +380,7 @@ QString NavSearch::formatModelData(const Column *col, const QVariant& displayRol
 
 void NavSearch::getSelectedMapObjects(map::MapResult& result) const
 {
-  if(!NavApp::getMainUi()->dockWidgetSearch->isVisible())
+  if(!ui->dockWidgetSearch->isVisible())
     return;
 
   // Build a SQL record with all available fields
@@ -456,7 +399,7 @@ void NavSearch::getSelectedMapObjects(map::MapResult& result) const
 
       // All objects are fully populated
       QString navType = rec.valueStr("nav_type");
-      map::MapTypes type = map::navTypeToMapObjectType(navType);
+      map::MapTypes type = map::navTypeToMapType(navType);
 
       if(type == map::WAYPOINT)
       {
@@ -498,17 +441,19 @@ void NavSearch::setCallbacks()
  * action depending on other action states */
 void NavSearch::updateButtonMenu()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
+  // List without all button
+  const QList<const QAction *> menus =
+  {
+    ui->actionNavSearchShowTypeOptions,
+    ui->actionNavSearchShowDistOptions,
+    ui->actionNavSearchShowSceneryOptions
+  };
 
   // Change state of show all action
   ui->actionNavSearchShowAllOptions->blockSignals(true);
-  if(atools::gui::util::allChecked({ui->actionNavSearchShowTypeOptions,
-                                    ui->actionNavSearchShowDistOptions,
-                                    ui->actionNavSearchShowSceneryOptions}))
+  if(atools::gui::util::allChecked(menus))
     ui->actionNavSearchShowAllOptions->setChecked(true);
-  else if(atools::gui::util::noneChecked({ui->actionNavSearchShowTypeOptions,
-                                          ui->actionNavSearchShowDistOptions,
-                                          ui->actionNavSearchShowSceneryOptions}))
+  else if(atools::gui::util::noneChecked(menus))
     ui->actionNavSearchShowAllOptions->setChecked(false);
   else
     ui->actionNavSearchShowAllOptions->setChecked(false);
@@ -516,26 +461,28 @@ void NavSearch::updateButtonMenu()
 
   // Show star in action for all widgets that are not in default state
   bool distanceSearchChanged = false;
-  if(ui->checkBoxNavDistSearch->isChecked())
+  if(columns->isDistanceCheckBoxChecked())
     distanceSearchChanged = atools::gui::util::anyWidgetChanged({ui->horizontalLayoutNavDistanceSearch});
 
-  atools::gui::util::changeStarIndication(ui->actionNavSearchShowDistOptions, distanceSearchChanged);
+  atools::gui::util::changeIndication(ui->actionNavSearchShowDistOptions, distanceSearchChanged);
 
-  atools::gui::util::changeStarIndication(ui->actionNavSearchShowTypeOptions,
-                                          atools::gui::util::anyWidgetChanged({ui->gridLayoutNavSearchType}));
+  atools::gui::util::changeIndication(ui->actionNavSearchShowTypeOptions,
+                                      atools::gui::util::anyWidgetChanged({ui->gridLayoutNavSearchType}));
 
-  atools::gui::util::changeStarIndication(ui->actionNavSearchShowSceneryOptions,
-                                          atools::gui::util::anyWidgetChanged(
-                                            {ui->horizontalLayoutNavScenerySearch}));
+  atools::gui::util::changeIndication(ui->actionNavSearchShowSceneryOptions,
+                                      atools::gui::util::anyWidgetChanged({ui->horizontalLayoutNavScenerySearch}));
+
+  if(controller->isRestoreFinished())
+    controller->rebuildQuery();
 }
 
 void NavSearch::updatePushButtons()
 {
   QItemSelectionModel *sm = view->selectionModel();
-  NavApp::getMainUi()->pushButtonNavSearchClearSelection->setEnabled(sm != nullptr && sm->hasSelection());
+  ui->pushButtonNavSearchClearSelection->setEnabled(sm != nullptr && sm->hasSelection());
 }
 
 QAction *NavSearch::followModeAction()
 {
-  return NavApp::getMainUi()->actionSearchNavaidFollowSelection;
+  return ui->actionSearchNavaidFollowSelection;
 }

@@ -18,6 +18,7 @@
 #include "airspace/airspacecontroller.h"
 
 #include "airspace/airspacetoolbarhandler.h"
+#include "atools.h"
 #include "common/constants.h"
 #include "db/airspacedialog.h"
 #include "db/dbtools.h"
@@ -58,7 +59,7 @@ AirspaceController::AirspaceController(MainWindow *mainWindowParam,
   if(dbOnline != nullptr)
     queries.insert(map::AIRSPACE_SRC_ONLINE, new AirspaceQuery(dbOnline, map::AIRSPACE_SRC_ONLINE));
 
-  for(AirspaceQuery *q : queries)
+  for(AirspaceQuery *q : qAsConst(queries))
     q->initQueries();
 
   // Button and action handler =================================
@@ -78,8 +79,7 @@ AirspaceController::AirspaceController(MainWindow *mainWindowParam,
 
 AirspaceController::~AirspaceController()
 {
-  qDebug() << Q_FUNC_INFO << "delete airspaceHandler";
-  delete airspaceHandler;
+  ATOOLS_DELETE_LOG(airspaceHandler);
 
   qDeleteAll(queries);
   queries.clear();
@@ -167,10 +167,8 @@ atools::sql::SqlRecord AirspaceController::getAirspaceInfoRecordById(map::MapAir
 }
 
 void AirspaceController::getAirspacesInternal(AirspaceVector& airspaceVector, const Marble::GeoDataLatLonBox& rect,
-                                              const MapLayer *mapLayer,
-                                              map::MapAirspaceFilter filter,
-                                              float flightPlanAltitude, bool lazy,
-                                              map::MapAirspaceSources src, bool& overflow)
+                                              const MapLayer *mapLayer, const map::MapAirspaceFilter& filter, float flightPlanAltitude,
+                                              bool lazy, map::MapAirspaceSources src, bool& overflow)
 {
   if((src & map::AIRSPACE_SRC_USER) && loadingUserAirspaces)
     // Avoid deadlock while loading user airspaces
@@ -183,8 +181,7 @@ void AirspaceController::getAirspacesInternal(AirspaceVector& airspaceVector, co
     if(query != nullptr)
     {
       // Get airspaces from cache
-      const QList<map::MapAirspace> *airspaces = query->getAirspaces(rect, mapLayer, filter, flightPlanAltitude, lazy,
-                                                                     overflow);
+      const QList<map::MapAirspace> *airspaces = query->getAirspaces(rect, mapLayer, filter, flightPlanAltitude, lazy, overflow);
 
       if(airspaces != nullptr)
       {
@@ -196,9 +193,8 @@ void AirspaceController::getAirspacesInternal(AirspaceVector& airspaceVector, co
   }
 }
 
-void AirspaceController::getAirspaces(AirspaceVector& airspaces, const Marble::GeoDataLatLonBox& rect,
-                                      const MapLayer *mapLayer, map::MapAirspaceFilter filter,
-                                      float flightPlanAltitude, bool lazy,
+void AirspaceController::getAirspaces(AirspaceVector& airspaces, const Marble::GeoDataLatLonBox& rect, const MapLayer *mapLayer,
+                                      const map::MapAirspaceFilter& filter, float flightPlanAltitude, bool lazy,
                                       map::MapAirspaceSources sourcesParam, bool& overflow)
 {
   // Merge airspace pointers from all sources/caches into one list
@@ -249,7 +245,7 @@ void AirspaceController::optionsChanged()
 {
   if(!loadingUserAirspaces)
   {
-    for(AirspaceQuery *query : queries)
+    for(AirspaceQuery *query : qAsConst(queries))
       // Also calls deinit before and clears caches
       query->initQueries();
   }
@@ -261,7 +257,7 @@ void AirspaceController::preDatabaseLoad()
   // preDatabaseLoadAirspaces and postDatabaseLoadAirspaces
   if(!loadingUserAirspaces)
   {
-    for(AirspaceQuery *query : queries)
+    for(AirspaceQuery *query : qAsConst(queries))
       query->deInitQueries();
   }
 }
@@ -272,7 +268,7 @@ void AirspaceController::postDatabaseLoad()
   // preDatabaseLoadAirspaces and postDatabaseLoadAirspaces
   if(!loadingUserAirspaces)
   {
-    for(AirspaceQuery *query : queries)
+    for(AirspaceQuery *query : qAsConst(queries))
       query->initQueries();
   }
 }
@@ -332,7 +328,7 @@ void AirspaceController::loadAirspaces()
     qDebug() << Q_FUNC_INFO << basePath;
 
     // Disable queries to avoid locked database
-    preLoadAirpaces();
+    preLoadAirspaces();
 
     bool success = false;
     int sceneryId = 1, fileId = 1, numReadTotal = 0, numFiles = 0;
@@ -468,7 +464,7 @@ void AirspaceController::loadAirspaces()
 
         html.p(tr("Conversion Errors/Warnings"), atools::util::html::BOLD | atools::util::html::BIG);
         html.ol();
-        for(const QString& err :  errors)
+        for(const QString& err :  qAsConst(errors))
           html.li(err);
         html.olEnd();
 
@@ -482,7 +478,7 @@ void AirspaceController::loadAirspaces()
     }
 
     // Re-initialize queries again
-    postLoadAirpaces();
+    postLoadAirspaces();
 
     // Let online controller update airspace shapes
     emit userAirspacesUpdated();
@@ -545,7 +541,7 @@ const atools::geo::LineString *AirspaceController::getOnlineAirspaceGeoByName(co
   return nullptr;
 }
 
-void AirspaceController::preLoadAirpaces()
+void AirspaceController::preLoadAirspaces()
 {
   loadingUserAirspaces = true;
   if(queries.contains(map::AIRSPACE_SRC_USER))
@@ -554,7 +550,7 @@ void AirspaceController::preLoadAirpaces()
   emit preDatabaseLoadAirspaces();
 }
 
-void AirspaceController::postLoadAirpaces()
+void AirspaceController::postLoadAirspaces()
 {
   if(queries.contains(map::AIRSPACE_SRC_USER))
     queries.value(map::AIRSPACE_SRC_USER)->initQueries();

@@ -105,8 +105,8 @@ void ElevationProvider::getElevations(atools::geo::LineString& elevations, const
     // Get altitude points for the line segment
     // The might not be complete and will be more complete on further iterations when we get a signal
     // from the elevation model
-    QVector<GeoDataCoordinates> temp = marbleModel->heightProfile(line.getPos1().getLonX(), line.getPos1().getLatY(),
-                                                                  line.getPos2().getLonX(), line.getPos2().getLatY());
+    const QVector<GeoDataCoordinates> temp = marbleModel->heightProfile(line.getPos1().getLonX(), line.getPos1().getLatY(),
+                                                                        line.getPos2().getLonX(), line.getPos2().getLatY());
 
     // Limit long legs to a maximum of 2000 points - minimum of 1000 points
     int divisor = 1;
@@ -185,10 +185,12 @@ void ElevationProvider::init(const Marble::ElevationModel *model)
   updateReader(true /* startup */);
 }
 
-void ElevationProvider::updateReader(bool startup)
+void ElevationProvider::updateReader(bool startupParam)
 {
-  bool warnWrongGlobePath = false, warnOpenFiles = false,
-       useOffline = OptionData::instance().getFlags().testFlag(opts::CACHE_USE_OFFLINE_ELEVATION);
+  startup = startupParam;
+  warnWrongGlobePath = warnOpenFiles = false;
+
+  bool useOffline = OptionData::instance().getFlags().testFlag(opts::CACHE_USE_OFFLINE_ELEVATION);
   const QString& path = OptionData::instance().getOfflineElevationPath();
 
   {
@@ -227,6 +229,14 @@ void ElevationProvider::updateReader(bool startup)
     }
   }
 
+  emit updateAvailable();
+}
+
+void ElevationProvider::showErrors()
+{
+  const QString& path = OptionData::instance().getOfflineElevationPath();
+  bool useOffline = OptionData::instance().getFlags().testFlag(opts::CACHE_USE_OFFLINE_ELEVATION);
+
   // Show this warning at startup and when changing options
   if(warnOpenFiles)
   {
@@ -262,6 +272,4 @@ void ElevationProvider::updateReader(bool startup)
     atools::gui::Dialog(NavApp::getQMainWidget()).showInfoMsgBox(lnm::ACTIONS_SHOW_INSTALL_GLOBE, message,
                                                                  tr("Do not &show this dialog again."));
   }
-
-  emit updateAvailable();
 }

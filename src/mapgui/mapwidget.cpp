@@ -17,7 +17,7 @@
 
 #include "mapgui/mapwidget.h"
 
-#include "common/aircrafttrack.h"
+#include "common/aircrafttrail.h"
 #include "common/constants.h"
 #include "common/elevationprovider.h"
 #include "common/jumpback.h"
@@ -25,6 +25,8 @@
 #include "common/symbolpainter.h"
 #include "common/unit.h"
 #include "connect/connectclient.h"
+#include "fs/gpx/gpxio.h"
+#include "fs/gpx/gpxtypes.h"
 #include "fs/perf/aircraftperf.h"
 #include "fs/sc/simconnectdata.h"
 #include "geo/calculations.h"
@@ -239,45 +241,16 @@ MapWidget::~MapWidget()
   qDebug() << Q_FUNC_INFO << "removeEventFilter";
   removeEventFilter(this);
 
-  qDebug() << Q_FUNC_INFO << "delete jumpBack";
-  delete jumpBack;
-  jumpBack = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapTooltip";
-  delete mapTooltip;
-  mapTooltip = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapVisible";
-  delete mapVisible;
-  mapVisible = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete pushButtonExitFullscreen";
-  delete pushButtonExitFullscreen;
-  pushButtonExitFullscreen = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete takeoffLandingLastAircraft";
-  delete takeoffLandingLastAircraft;
-  takeoffLandingLastAircraft = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapSearchResultTooltip";
-  delete mapSearchResultTooltip;
-  mapSearchResultTooltip = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapSearchResultTooltipLast";
-  delete mapSearchResultTooltipLast;
-  mapSearchResultTooltipLast = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapSearchResultInfoClick";
-  delete mapSearchResultInfoClick;
-  mapSearchResultInfoClick = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete distanceMarkerBackup";
-  delete distanceMarkerBackup;
-  distanceMarkerBackup = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete userpointDrag";
-  delete userpointDrag;
-  userpointDrag = nullptr;
+  ATOOLS_DELETE_LOG(jumpBack);
+  ATOOLS_DELETE_LOG(mapTooltip);
+  ATOOLS_DELETE_LOG(mapVisible);
+  ATOOLS_DELETE_LOG(pushButtonExitFullscreen);
+  ATOOLS_DELETE_LOG(takeoffLandingLastAircraft);
+  ATOOLS_DELETE_LOG(mapSearchResultTooltip);
+  ATOOLS_DELETE_LOG(mapSearchResultTooltipLast);
+  ATOOLS_DELETE_LOG(mapSearchResultInfoClick);
+  ATOOLS_DELETE_LOG(distanceMarkerBackup);
+  ATOOLS_DELETE_LOG(userpointDrag);
 }
 
 void MapWidget::addFullScreenExitButton()
@@ -304,8 +277,7 @@ void MapWidget::removeFullScreenExitButton()
   if(pushButtonExitFullscreen != nullptr)
   {
     disconnect(pushButtonExitFullscreen, &QPushButton::clicked, this, &MapWidget::exitFullScreenPressed);
-    delete pushButtonExitFullscreen;
-    pushButtonExitFullscreen = nullptr;
+    ATOOLS_DELETE(pushButtonExitFullscreen);
   }
 }
 
@@ -358,7 +330,7 @@ void MapWidget::historyBack()
   }
 }
 
-void MapWidget::handleInfoClick(QPoint point)
+void MapWidget::handleInfoClick(const QPoint& point)
 {
   qDebug() << Q_FUNC_INFO << point;
 
@@ -423,6 +395,32 @@ void MapWidget::handleInfoClick(QPoint point)
   }
 
   emit showInformation(*mapSearchResultInfoClick);
+}
+
+void MapWidget::handleRouteClick(const QPoint& point)
+{
+  qDebug() << Q_FUNC_INFO << point;
+
+  // Check if click enabled and flight plan is visible
+  if(OptionData::instance().getDisplayClickOptions().testFlag(optsd::CLICK_FLIGHTPLAN) &&
+     getShownMapDisplayTypes().testFlag(map::FLIGHTPLAN))
+  {
+    Pos pos = CoordinateConverter(viewport()).sToW(point);
+    if(pos.isValid())
+    {
+      // Get all objects near click and remove all having no route index, i.e. are not a part of the route
+      map::MapResult result;
+      getScreenIndexConst()->getAllNearest(point, screenSearchDistance, result, map::QUERY_NONE /* For double click */);
+      result.removeNoRouteIndex();
+
+      // Add only route related objects and sort by distance
+      map::MapResultIndex index;
+      index.add(result, map::NAV_FLIGHTPLAN).sort(pos);
+
+      if(!index.isEmpty())
+        emit showInRoute(map::routeIndex(index.first()));
+    }
+  }
 }
 
 void MapWidget::fuelOnOffTimeout()
@@ -542,8 +540,21 @@ void MapWidget::updateTooltipResult()
                                         map::QUERY_MARK_MSA | map::QUERY_MARK_DISTANCE | map::QUERY_MARK_RANGE |
                                         map::QUERY_PREVIEW_PROC_POINTS | map::QUERY_PROC_RECOMMENDED;
 
+  const OptionData& optiondata = OptionData::instance();
+
+  // Enable features not always shown depending on visiblity
   if(getShownMapTypes().testFlag(map::MISSED_APPROACH))
     queryTypes |= map::QUERY_PROC_MISSED_POINTS;
+
+  if(getShownMapDisplayTypes().testFlag(map::FLIGHTPLAN_ALTERNATE))
+    queryTypes |= map::QUERY_ALTERNATE;
+
+  if(getShownMapTypes().testFlag(map::AIRCRAFT_TRAIL) && optiondata.getDisplayTooltipOptions().testFlag(optsd::TOOLTIP_AIRCRAFT_TRAIL))
+    queryTypes |= map::QUERY_AIRCRAFT_TRAIL;
+
+  if(optiondata.getDisplayTooltipOptions().testFlag(optsd::TOOLTIP_AIRCRAFT_TRAIL) &&
+     getShownMapDisplayTypes().testFlag(map::LOGBOOK_TRACK))
+    queryTypes |= map::QUERY_AIRCRAFT_TRAIL_LOG;
 
   // Load tooltip data into mapSearchResultTooltip
   *mapSearchResultTooltip = map::MapResult();
@@ -591,11 +602,11 @@ void MapWidget::showTooltip(bool update)
   {
     qreal lon, lat;
     QPoint point = mapFromGlobal(tooltipGlobalPos);
+    map::AircraftTrailSegment trailSegment;
     if(geoCoordinates(point.x(), point.y(), lon, lat))
     {
       // Build a new tooltip HTML for weather changes or aircraft updates
       QString text;
-
       if(paintLayer->getMapLayer() != nullptr)
         text = mapTooltip->buildTooltip(*mapSearchResultTooltip, atools::geo::Pos(lon, lat), NavApp::getRouteConst(),
                                         paintLayer->getMapLayer()->isAirportDiagram());
@@ -787,8 +798,12 @@ bool MapWidget::mousePressCheckModifierActions(QMouseEvent *event)
 void MapWidget::mousePressEvent(QMouseEvent *event)
 {
 #ifdef DEBUG_INFORMATION
-  qDebug() << Q_FUNC_INFO << "state" << mouseState << "modifiers" << event->modifiers() << "pos" << event->pos();
+  qDebug() << Q_FUNC_INFO << "state" << mouseState << "modifiers" << event->modifiers() << "pos" << event->pos()
+           << "noRender()" << noRender();
 #endif
+
+  // Skip unneeded rendering after single mouseclick
+  skipRender = true;
 
   if(noRender())
   {
@@ -855,6 +870,9 @@ void MapWidget::mouseReleaseEvent(QMouseEvent *event)
 #ifdef DEBUG_INFORMATION
   qDebug() << Q_FUNC_INFO << "state" << mouseState << "modifiers" << event->modifiers() << "pos" << event->pos();
 #endif
+
+  // Skip unneeded rendering after single mouseclick
+  skipRender = false;
 
   if(noRender())
   {
@@ -1054,7 +1072,8 @@ void MapWidget::mouseReleaseEvent(QMouseEvent *event)
       {
         if(cursor().shape() != Qt::ArrowCursor)
           setCursor(Qt::ArrowCursor);
-        handleInfoClick(event->pos());
+        handleInfoClick(event->pos()); // Show information
+        handleRouteClick(event->pos()); // Select in flight plan
 
         if(OptionData::instance().getMapNavigation() == opts::MAP_NAV_CLICK_CENTER)
         {
@@ -1247,6 +1266,9 @@ void MapWidget::wheelEvent(QWheelEvent *event)
       }
     }
   }
+  else
+    // Skip unneeded rendering after single mouseclick
+    skipRender = true;
 
 #ifdef DEBUG_INFORMATION
   qDebug() << Q_FUNC_INFO << "distance NM" << atools::geo::kmToNm(distance())
@@ -1833,6 +1855,9 @@ void MapWidget::contextMenuEvent(QContextMenuEvent *event)
   if(mouseState != mw::NONE)
     return;
 
+  // Skip unneeded rendering after single mouseclick
+  skipRender = true;
+
   // Disable any automatic scrolling
   contextMenuActive = true;
 
@@ -2005,11 +2030,15 @@ void MapWidget::contextMenuEvent(QContextMenuEvent *event)
           break;
 
         case mc::ADDROUTE:
-          emit routeAdd(id, pos, type, -1 /* leg index */);
+          emit routeAdd(id, pos, type, legindex::AUTO);
           break;
 
         case mc::APPENDROUTE:
-          emit routeAdd(id, pos, type, map::INVALID_INDEX_VALUE);
+          emit routeAdd(id, pos, type, legindex::APPEND);
+          break;
+
+        case mc::DIRECT:
+          emit directTo(id, pos, type, contextMenu.getSelectedRouteIndex());
           break;
 
         case mc::DELETEROUTEWAYPOINT:
@@ -2018,6 +2047,10 @@ void MapWidget::contextMenuEvent(QContextMenuEvent *event)
 
         case mc::EDITROUTEUSERPOINT:
           NavApp::getRouteController()->editUserWaypointName(contextMenu.getSelectedRouteIndex());
+          break;
+
+        case mc::CONVERTPROCEDURE:
+          NavApp::getRouteController()->convertProcedure(contextMenu.getSelectedRouteIndex());
           break;
 
         case mc::MARKAIRPORTADDON:
@@ -2050,6 +2083,10 @@ void MapWidget::contextMenuEvent(QContextMenuEvent *event)
 
         case mc::SHOWINSEARCH:
           showResultInSearch(base);
+          break;
+
+        case mc::SHOWINROUTE:
+          emit showInRoute(map::routeIndex(base));
           break;
 
         case mc::REMOVEUSER:
@@ -2131,13 +2168,13 @@ void MapWidget::updateRoute(const QPoint& point, int leg, int pointIndex, bool f
   if((id != -1 && type != map::NONE) || type == map::USERPOINTROUTE)
   {
     if(fromClickAdd)
-      emit routeAdd(id, pos, type, -1 /* leg index */);
+      emit routeAdd(id, pos, type, legindex::AUTO);
     else if(fromClickAppend)
-      emit routeAdd(id, pos, type, map::INVALID_INDEX_VALUE);
+      emit routeAdd(id, pos, type, legindex::APPEND);
     else
     {
       // From drag
-      if(leg != -1)
+      if(leg != legindex::AUTO)
         emit routeAdd(id, pos, type, leg);
       else if(pointIndex != -1)
         emit routeReplace(id, pos, type, pointIndex);
@@ -2156,7 +2193,7 @@ bool MapWidget::showFeatureSelectionMenu(int& id, map::MapTypes& type, const map
   for(const map::MapAirport& obj : result.airports)
   {
     QAction *action = new QAction(SymbolPainter::createAirportIcon(obj, ICON_SIZE), menuText.arg(map::airportText(obj, 20)), this);
-    action->setData(QVariant::fromValue(map::MapObjectRef(obj.id, map::AIRPORT)));
+    action->setData(QVariant::fromValue(map::MapRef(obj.id, map::AIRPORT)));
     menu.addAction(action);
   }
 
@@ -2168,19 +2205,19 @@ bool MapWidget::showFeatureSelectionMenu(int& id, map::MapTypes& type, const map
   for(const map::MapVor& obj : result.vors)
   {
     QAction *action = new QAction(SymbolPainter::createVorIcon(obj, ICON_SIZE), menuText.arg(map::vorText(obj)), this);
-    action->setData(QVariant::fromValue(map::MapObjectRef(obj.id, map::VOR)));
+    action->setData(QVariant::fromValue(map::MapRef(obj.id, map::VOR)));
     menu.addAction(action);
   }
   for(const map::MapNdb& obj : result.ndbs)
   {
     QAction *action = new QAction(SymbolPainter::createNdbIcon(ICON_SIZE), menuText.arg(map::ndbText(obj)), this);
-    action->setData(QVariant::fromValue(map::MapObjectRef(obj.id, map::NDB)));
+    action->setData(QVariant::fromValue(map::MapRef(obj.id, map::NDB)));
     menu.addAction(action);
   }
   for(const map::MapWaypoint& obj : result.waypoints)
   {
     QAction *action = new QAction(SymbolPainter::createWaypointIcon(ICON_SIZE), menuText.arg(map::waypointText(obj)), this);
-    action->setData(QVariant::fromValue(map::MapObjectRef(obj.id, map::WAYPOINT)));
+    action->setData(QVariant::fromValue(map::MapRef(obj.id, map::WAYPOINT)));
     menu.addAction(action);
   }
 
@@ -2198,7 +2235,7 @@ bool MapWidget::showFeatureSelectionMenu(int& id, map::MapTypes& type, const map
     else
     {
       action = new QAction(SymbolPainter::createUserpointIcon(ICON_SIZE), menuText.arg(map::userpointText(obj)), this);
-      action->setData(QVariant::fromValue(map::MapObjectRef(obj.id, map::USERPOINT)));
+      action->setData(QVariant::fromValue(map::MapRef(obj.id, map::USERPOINT)));
       menu.addAction(action);
     }
     numUserpoints++;
@@ -2208,7 +2245,7 @@ bool MapWidget::showFeatureSelectionMenu(int& id, map::MapTypes& type, const map
   menu.addSeparator();
   {
     QAction *action = new QAction(SymbolPainter::createUserpointIcon(ICON_SIZE), menuText.arg(tr("Position")), this);
-    action->setData(QVariant::fromValue(map::MapObjectRef(-1, map::USERPOINTROUTE)));
+    action->setData(QVariant::fromValue(map::MapRef(-1, map::USERPOINTROUTE)));
     menu.addAction(action);
   }
 
@@ -2222,7 +2259,7 @@ bool MapWidget::showFeatureSelectionMenu(int& id, map::MapTypes& type, const map
   if(action != nullptr && !action->data().isNull())
   {
     // Get id and type from selected action
-    map::MapObjectRef data = action->data().value<map::MapObjectRef>();
+    map::MapRef data = action->data().value<map::MapRef>();
     id = data.id;
     type = data.objType;
     return true;
@@ -2308,6 +2345,9 @@ void MapWidget::takeoffLandingTimeout()
       takeoffTimeSim = takeoffLandingLastAircraft->getZuluTime();
       takeoffLandingDistanceNm = 0.;
 
+      // Delete the profile track to avoid the messy collection of older tracks
+      NavApp::getMainWindow()->deleteProfileAircraftTrail();
+
       emit aircraftTakeoff(aircraft);
     }
   }
@@ -2343,7 +2383,8 @@ void MapWidget::showGridConfiguration()
   qDebug() << Q_FUNC_INFO;
 
   // Look through all render plugins and look for GraticulePlugin
-  for(Marble::RenderPlugin *plugin : renderPlugins())
+  const QList<Marble::RenderPlugin *> plugins = renderPlugins();
+  for(Marble::RenderPlugin *plugin : plugins)
   {
     if(plugin->nameId() == "coordinate-grid")
     {
@@ -2416,19 +2457,19 @@ void MapWidget::simDataChanged(const atools::fs::sc::SimConnectData& simulatorDa
   dy = std::max(static_cast<int>(height() * boxFactor), 32);
   widgetRectSmallPlan.adjust(dx, dy, -dx, -dy);
 
-  bool wasEmpty = aircraftTrack->isEmpty();
+  bool wasEmpty = aircraftTrail->isEmpty();
 #ifdef DEBUG_INFORMATION_DISABLED
   qDebug() << "curPos" << curPos;
   qDebug() << "widgetRectSmall" << widgetRectSmall;
 #endif
 
-  bool pruned = aircraftTrack->appendTrackPos(aircraft, true /* allowSplit */);
-  pruned |= aircraftTrackLogbook->appendTrackPos(aircraft, false /* allowSplit */);
+  bool pruned = aircraftTrail->appendTrailPos(aircraft, true /* allowSplit */);
+  pruned |= aircraftTrailLogbook->appendTrailPos(aircraft, false /* allowSplit */);
 
   if(pruned)
     emit aircraftTrackPruned();
 
-  if(wasEmpty != aircraftTrack->isEmpty())
+  if(wasEmpty != aircraftTrail->isEmpty())
     // We have a track - update toolbar and menu
     emit updateActionStates();
 
@@ -2781,7 +2822,7 @@ void MapWidget::mainWindowShown()
 
   // Create a copy of KML files where all missing files will be removed from the recent list
   QStringList copyKml(kmlFilePaths);
-  for(const QString& kml : kmlFilePaths)
+  for(const QString& kml : qAsConst(kmlFilePaths))
   {
     if(!loadKml(kml, false /* center */))
       copyKml.removeAll(kml);
@@ -2925,7 +2966,7 @@ void MapWidget::overlayStateFromMenu()
 
 void MapWidget::connectOverlayMenus()
 {
-  for(QAction *action : mapOverlays)
+  for(QAction *action : qAsConst(mapOverlays))
     connect(action, &QAction::toggled, this, &MapWidget::overlayStateFromMenu);
 
   for(auto it = mapOverlays.constBegin(); it != mapOverlays.constEnd(); ++it)
@@ -2949,7 +2990,6 @@ bool MapWidget::isCenterLegAndAircraftActive()
 void MapWidget::optionsChanged()
 {
   screenSearchDistance = OptionData::instance().getMapClickSensitivity();
-
   screenSearchDistanceTooltip = OptionData::instance().getMapTooltipSensitivity();
   MapPaintWidget::optionsChanged();
 }
@@ -2995,12 +3035,12 @@ void MapWidget::saveState()
 
   history.saveState(atools::settings::Settings::getConfigFilename(".history"));
   getScreenIndexConst()->saveState();
-  aircraftTrack->saveState(lnm::AIRCRAFT_TRACK_SUFFIX, 2 /* numBackups */);
-  aircraftTrackLogbook->saveState(lnm::LOGBOOK_TRACK_SUFFIX, 0 /* numBackups */);
+  aircraftTrail->saveState(lnm::AIRCRAFT_TRACK_SUFFIX, 2 /* numBackups */);
+  aircraftTrailLogbook->saveState(lnm::LOGBOOK_TRACK_SUFFIX, 0 /* numBackups */);
 
   overlayStateToMenu();
   atools::gui::WidgetState state(lnm::MAP_OVERLAY_VISIBLE, false /*save visibility*/, true /*block signals*/);
-  for(QAction *action : mapOverlays)
+  for(QAction *action : qAsConst(mapOverlays))
     state.save(action);
 }
 
@@ -3044,21 +3084,21 @@ void MapWidget::restoreState()
     homeDistance = DEFAULT_MAP_DISTANCE_KM;
   }
 
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_KML)
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_KML && !NavApp::isSafeMode())
     kmlFilePaths = settings.valueStrList(lnm::MAP_KMLFILES);
 
   // Restore range rings, patterns, holds and more
   getScreenIndex()->restoreState();
 
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_TRAIL)
-    aircraftTrack->restoreState(lnm::AIRCRAFT_TRACK_SUFFIX);
-  aircraftTrack->setMaxTrackEntries(OptionData::instance().getAircraftTrackMaxPoints());
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_TRAIL && !NavApp::isSafeMode())
+    aircraftTrail->restoreState(lnm::AIRCRAFT_TRACK_SUFFIX);
+  aircraftTrail->setMaxTrackEntries(OptionData::instance().getAircraftTrailMaxPoints());
 
-  aircraftTrackLogbook->restoreState(lnm::LOGBOOK_TRACK_SUFFIX);
-  aircraftTrackLogbook->setMaxTrackEntries(OptionData::instance().getAircraftTrackMaxPoints());
+  aircraftTrailLogbook->restoreState(lnm::LOGBOOK_TRACK_SUFFIX);
+  aircraftTrailLogbook->setMaxTrackEntries(OptionData::instance().getAircraftTrailMaxPoints());
 
   atools::gui::WidgetState state(lnm::MAP_OVERLAY_VISIBLE, false /*save visibility*/, true /*block signals*/);
-  for(QAction *action : mapOverlays)
+  for(QAction *action : qAsConst(mapOverlays))
     state.restore(action);
 
   if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_MAP_SETTINGS)
@@ -3182,13 +3222,13 @@ void MapWidget::resetSettingActionsToDefault()
   atools::gui::SignalBlocker blocker({ui->actionMapShowAirports, ui->actionMapShowVor, ui->actionMapShowNdb, ui->actionMapShowWp,
                                       ui->actionMapShowIls, ui->actionMapShowGls, ui->actionMapShowHolding, ui->actionMapShowAirportMsa,
                                       ui->actionMapShowVictorAirways, ui->actionMapShowJetAirways, ui->actionMapShowTracks,
-                                      ui->actionShowAirspaces, ui->actionMapShowRoute, ui->actionMapShowTocTod, ui->actionMapShowAircraft,
-                                      ui->actionMapShowCompassRose, ui->actionMapShowCompassRoseAttach, ui->actionMapShowEndurance,
-                                      ui->actionMapShowSelectedAltRange, ui->actionMapShowTurnPath, ui->actionMapAircraftCenter,
-                                      ui->actionMapShowAircraftAi, ui->actionMapShowAircraftOnline, ui->actionMapShowAircraftAiBoat,
-                                      ui->actionMapShowAircraftTrack, ui->actionInfoApproachShowMissedAppr, ui->actionMapShowGrid,
-                                      ui->actionMapShowCities, ui->actionMapShowMinimumAltitude, ui->actionMapShowAirportWeather,
-                                      ui->actionMapShowSunShading});
+                                      ui->actionShowAirspaces, ui->actionMapShowRoute, ui->actionMapShowTocTod, ui->actionMapShowAlternate,
+                                      ui->actionMapShowAircraft, ui->actionMapShowCompassRose, ui->actionMapShowCompassRoseAttach,
+                                      ui->actionMapShowEndurance, ui->actionMapShowSelectedAltRange, ui->actionMapShowTurnPath,
+                                      ui->actionMapAircraftCenter, ui->actionMapShowAircraftAi, ui->actionMapShowAircraftOnline,
+                                      ui->actionMapShowAircraftAiBoat, ui->actionMapShowAircraftTrack, ui->actionInfoApproachShowMissedAppr,
+                                      ui->actionMapShowGrid, ui->actionMapShowCities, ui->actionMapShowMinimumAltitude,
+                                      ui->actionMapShowAirportWeather, ui->actionMapShowSunShading});
 
   // Menu map =====================================
   ui->actionMapAircraftCenter->setChecked(true);
@@ -3215,6 +3255,7 @@ void MapWidget::resetSettingActionsToDefault()
   // -----------------
   ui->actionMapShowRoute->setChecked(true);
   ui->actionMapShowTocTod->setChecked(true);
+  ui->actionMapShowAlternate->setChecked(true);
   ui->actionInfoApproachShowMissedAppr->setChecked(true);
   ui->actionMapShowAircraft->setChecked(true);
   ui->actionMapShowAircraftTrack->setChecked(true);
@@ -3292,8 +3333,10 @@ void MapWidget::updateMapObjectsShown()
   setShowMapPois(ui->actionMapShowCities->isChecked());
   setShowGrid(ui->actionMapShowGrid->isChecked());
 
+  // Remember current values in paint layer to compare and detect changes
   map::MapTypes oldTypes = getShownMapTypes();
   map::MapDisplayTypes oldDisplayTypes = getShownMapDisplayTypes();
+  int oldMinRunwayLength = getShownMinimumRunwayFt();
 
   setShowMapObject(map::AIRWAYV, ui->actionMapShowVictorAirways->isChecked());
   setShowMapObject(map::AIRWAYJ, ui->actionMapShowJetAirways->isChecked());
@@ -3303,6 +3346,7 @@ void MapWidget::updateMapObjectsShown()
 
   setShowMapObjectDisplay(map::FLIGHTPLAN, ui->actionMapShowRoute->isChecked());
   setShowMapObjectDisplay(map::FLIGHTPLAN_TOC_TOD, ui->actionMapShowTocTod->isChecked());
+  setShowMapObjectDisplay(map::FLIGHTPLAN_ALTERNATE, ui->actionMapShowAlternate->isChecked());
   setShowMapObject(map::MISSED_APPROACH, ui->actionInfoApproachShowMissedAppr->isChecked());
 
   setShowMapObjectDisplay(map::COMPASS_ROSE, ui->actionMapShowCompassRose->isChecked());
@@ -3311,7 +3355,7 @@ void MapWidget::updateMapObjectsShown()
   setShowMapObjectDisplay(map::AIRCRAFT_SELECTED_ALT_RANGE, ui->actionMapShowSelectedAltRange->isChecked());
   setShowMapObjectDisplay(map::AIRCRAFT_TURN_PATH, ui->actionMapShowTurnPath->isChecked());
   setShowMapObject(map::AIRCRAFT, ui->actionMapShowAircraft->isChecked());
-  setShowMapObjectDisplay(map::AIRCRAFT_TRACK, ui->actionMapShowAircraftTrack->isChecked());
+  setShowMapObject(map::AIRCRAFT_TRAIL, ui->actionMapShowAircraftTrack->isChecked());
   setShowMapObject(map::AIRCRAFT_AI, ui->actionMapShowAircraftAi->isChecked());
   setShowMapObject(map::AIRCRAFT_ONLINE, ui->actionMapShowAircraftOnline->isChecked());
   setShowMapObject(map::AIRCRAFT_AI_SHIP, ui->actionMapShowAircraftAiBoat->isChecked());
@@ -3335,14 +3379,13 @@ void MapWidget::updateMapObjectsShown()
   // ILS and marker are shown together
   setShowMapObject(map::ILS, ui->actionMapShowIls->isChecked());
   setShowMapObject(map::MARKER, ui->actionMapShowIls->isChecked());
-
   setShowMapObjectDisplay(map::GLS, ui->actionMapShowGls->isChecked());
 
   setShowMapObjects(NavApp::getMapMarkHandler()->getMarkTypes(), map::MARK_ALL);
   setShowMapObjects(NavApp::getMapAirportHandler()->getAirportTypes(), map::AIRPORT_ALL_AND_ADDON);
   paintLayer->setShowMinimumRunwayFt(NavApp::getMapAirportHandler()->getMinimumRunwayFt());
 
-  updateGeometryIndex(oldTypes, oldDisplayTypes);
+  updateGeometryIndex(oldTypes, oldDisplayTypes, oldMinRunwayLength);
 
   mapVisible->updateVisibleObjectsStatusBar();
 
@@ -3782,16 +3825,46 @@ void MapWidget::clearAllMarkers(map::MapTypes types)
   mainWindow->setStatusMessage(tr("User features removed from map."));
 }
 
-void MapWidget::deleteAircraftTrack()
+void MapWidget::loadAircraftTrail(const QString& filename)
 {
-  aircraftTrack->clearTrack();
+  atools::fs::gpx::GpxData gpxData;
+  atools::fs::gpx::GpxIO().loadGpx(gpxData, filename);
+
+  aircraftTrail->fillTrailFromGpxData(gpxData);
+
+  if(OptionData::instance().getFlags().testFlag(opts::GUI_CENTER_ROUTE))
+    showRect(gpxData.trailRect, false /* doubleClick */);
+
+  update();
+  emit updateActionStates();
+  mainWindow->setStatusMessage(tr("User aircraft trail replaced."));
+}
+
+void MapWidget::appendAircraftTrail(const QString& filename)
+{
+  atools::fs::gpx::GpxData gpxData;
+  atools::fs::gpx::GpxIO().loadGpx(gpxData, filename);
+
+  aircraftTrail->appendTrailFromGpxData(gpxData);
+
+  if(OptionData::instance().getFlags().testFlag(opts::GUI_CENTER_ROUTE))
+    showRect(gpxData.trailRect, false /* doubleClick */);
+
+  update();
+  emit updateActionStates();
+  mainWindow->setStatusMessage(tr("User aircraft trail appended."));
+}
+
+void MapWidget::deleteAircraftTrail()
+{
+  aircraftTrail->clearTrail();
   emit updateActionStates();
   update();
 }
 
-void MapWidget::deleteAircraftTrackLogbook()
+void MapWidget::deleteAircraftTrailLogbook()
 {
-  aircraftTrackLogbook->clearTrack();
+  aircraftTrailLogbook->clearTrail();
 }
 
 void MapWidget::setDetailLevel(int level)

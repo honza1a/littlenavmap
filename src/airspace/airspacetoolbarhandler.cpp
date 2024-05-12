@@ -17,6 +17,7 @@
 
 #include "airspace/airspacetoolbarhandler.h"
 
+#include "atools.h"
 #include "common/maptypes.h"
 #include "common/unit.h"
 #include "gui/actionbuttonhandler.h"
@@ -100,7 +101,7 @@ int AirspaceAltSliderAction::maxValue() const
 void AirspaceAltSliderAction::setSliderValue(int value)
 {
   sliderValue = value;
-  for(QSlider *slider : sliders)
+  for(QSlider *slider : qAsConst(sliders))
   {
     slider->blockSignals(true);
     slider->setValue(sliderValue);
@@ -138,7 +139,7 @@ void AirspaceLabelAction::setText(const QString& textParam)
 {
   text = textParam;
   // Set text to all registered labels
-  for(QLabel *label : labels)
+  for(QLabel *label : qAsConst(labels))
     label->setText(text);
 }
 
@@ -177,11 +178,11 @@ AirspaceToolBarHandler::AirspaceToolBarHandler(QWidget *parent)
 
 AirspaceToolBarHandler::~AirspaceToolBarHandler()
 {
-  delete buttonHandlerIcao;
-  delete buttonHandlerFir;
-  delete buttonHandlerRestricted;
-  delete buttonHandlerSpecial;
-  delete buttonHandlerOther;
+  ATOOLS_DELETE(buttonHandlerIcao);
+  ATOOLS_DELETE(buttonHandlerFir);
+  ATOOLS_DELETE(buttonHandlerRestricted);
+  ATOOLS_DELETE(buttonHandlerSpecial);
+  ATOOLS_DELETE(buttonHandlerOther);
 }
 
 void AirspaceToolBarHandler::allAirspacesToggled()
@@ -191,7 +192,7 @@ void AirspaceToolBarHandler::allAirspacesToggled()
 
 void AirspaceToolBarHandler::updateToolButtons()
 {
-  map::MapAirspaceFilter shown = NavApp::getShownMapAirspaces();
+  const map::MapAirspaceFilter& shown = NavApp::getShownMapAirspaces();
 
   QAction *airspaceAction = NavApp::getMainUi()->actionShowAirspaces;
 
@@ -218,9 +219,10 @@ void AirspaceToolBarHandler::updateToolActions()
 {
   bool enable = NavApp::getMainUi()->actionShowAirspaces->isChecked();
   bool hasAirspaces = NavApp::hasAnyAirspaces();
-  for(QToolButton *toolButton : airspaceToolButtons)
+  for(QToolButton *toolButton : qAsConst(airspaceToolButtons))
   {
-    for(QAction *action : toolButton->menu()->actions())
+    const QList<QAction *> actions = toolButton->menu()->actions();
+    for(QAction *action : actions)
       action->setEnabled(enable && hasAirspaces);
   }
 }
@@ -235,9 +237,10 @@ void AirspaceToolBarHandler::updateSliders()
 
 void AirspaceToolBarHandler::actionsToFilterTypes(map::MapAirspaceFilter& currentFilter)
 {
-  for(QToolButton *toolButton : airspaceToolButtons)
+  for(QToolButton *toolButton : qAsConst(airspaceToolButtons))
   {
-    for(QAction *action : toolButton->menu()->actions())
+    const QList<QAction *> actions = toolButton->menu()->actions();
+    for(QAction *action : actions)
     {
       map::MapAirspaceFilter filter = action->data().value<map::MapAirspaceFilter>();
       if(filter.flags.testFlag(map::AIRSPACE_ALTITUDE_FLAG_NONE))
@@ -253,9 +256,10 @@ void AirspaceToolBarHandler::actionsToFilterTypes(map::MapAirspaceFilter& curren
 
 void AirspaceToolBarHandler::filterTypesToActions(const map::MapAirspaceFilter& currentFilter)
 {
-  for(QToolButton *toolButton : airspaceToolButtons)
+  for(QToolButton *toolButton : qAsConst(airspaceToolButtons))
   {
-    for(QAction *action : toolButton->menu()->actions())
+    const QList<QAction *> actions = toolButton->menu()->actions();
+    for(QAction *action : actions)
     {
       action->blockSignals(true);
       map::MapAirspaceFilter filter = action->data().value<map::MapAirspaceFilter>();
@@ -273,7 +277,7 @@ void AirspaceToolBarHandler::filterTypesToActions(const map::MapAirspaceFilter& 
 void AirspaceToolBarHandler::updateButtonsAndActions()
 {
   // Copy currently selected altitude values to sliders
-  map::MapAirspaceFilter filter = NavApp::getShownMapAirspaces();
+  const map::MapAirspaceFilter& filter = NavApp::getShownMapAirspaces();
   sliderActionAltMin->setAltitudeFt(filter.minAltitudeFt);
   sliderActionAltMax->setAltitudeFt(filter.maxAltitudeFt);
 
@@ -314,7 +318,8 @@ void AirspaceToolBarHandler::actionRadioGroupTriggered(QAction *action)
   if(group != nullptr)
   {
     // Have to do the group selection here since it is broken by blockSignals
-    for(QAction *groupAction :  group->actions())
+    const QList<QAction *> actions = group->actions();
+    for(QAction *groupAction : actions)
     {
       map::MapAirspaceFilter filter = action->data().value<map::MapAirspaceFilter>();
       if(groupAction == action)
@@ -337,7 +342,7 @@ void AirspaceToolBarHandler::updateSliderLabel()
   int min = sliderActionAltMin->getAltitudeFt();
   int max = sliderActionAltMax->getAltitudeFt();
 
-  map::MapAirspaceFilter filter = NavApp::getShownMapAirspaces();
+  const map::MapAirspaceFilter& filter = NavApp::getShownMapAirspaces();
   QString disabledText;
 
   // Get note text if slider is disabled =============

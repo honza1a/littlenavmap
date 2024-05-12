@@ -38,6 +38,7 @@ void messages::resetAllMessages()
   settings.setValue(lnm::ACTIONS_SHOW_INSTALL_GLOBE, true);
   settings.setValue(lnm::ACTIONS_SHOW_LOAD_FLP_WARN, true);
   settings.setValue(lnm::ACTIONS_SHOW_LOAD_ALT_WARN, true);
+  settings.setValue(lnm::ACTIONS_SHOW_LOAD_ALT_CORRECTED, true);
   settings.setValue(lnm::ACTIONS_SHOW_LOGBOOK_CONVERSION, true);
   settings.setValue(lnm::ACTIONS_SHOW_QUIT, true);
   settings.setValue(lnm::ACTIONS_SHOW_QUIT_LOADING, true);
@@ -48,6 +49,7 @@ void messages::resetAllMessages()
   settings.setValue(lnm::ACTIONS_SHOW_SEND_SIMBRIEF, true);
   settings.setValue(lnm::ACTIONS_SHOW_UPDATE_FAILED, true);
   settings.setValue(lnm::ACTIONS_SHOW_ZOOM_WARNING, true);
+  settings.setValue(lnm::ACTIONS_SHOW_REPLACE_TRAIL, true);
 
   settings.setValue(lnm::ACTIONS_SHOW_ROUTE_ALTERNATE_ERROR, true);
   settings.setValue(lnm::ACTIONS_SHOW_ROUTE_ERROR, true);
@@ -64,9 +66,11 @@ void messages::resetAllMessages()
   settings.setValue(lnm::ACTIONS_SHOW_SSL_WARNING_TRACK, true);
   settings.setValue(lnm::ACTIONS_SHOW_SSL_WARNING_WEATHER, true);
   settings.setValue(lnm::ACTIONS_SHOW_SSL_WARNING_WIND, true);
+  settings.setValue(lnm::ACTIONS_SHOW_FLIGHTPLAN_WARN_CONVERT, true);
 
   settings.setValue(lnm::ACTIONS_SHOW_DATABASE_BACKGROUND_HINT, true);
   settings.setValue(lnm::ROUTE_STRING_DIALOG_BACKGROUND_HINT, true);
+
 }
 
 void messages::resetEssentialMessages()

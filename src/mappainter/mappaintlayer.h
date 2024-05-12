@@ -44,7 +44,7 @@ class MapPainterMark;
 class MapPainterTop;
 class MapPainterRoute;
 class MapPainterAircraft;
-class MapPainterTrack;
+class MapPainterTrail;
 class MapPainterShip;
 class MapPainterUser;
 class MapPainterAltitude;
@@ -113,7 +113,10 @@ public:
   /* Adjusted by layer visibility */
   map::MapAirspaceFilter getShownAirspacesTypesByLayer() const;
 
-  map::MapAirspaceFilter getShownAirspaces() const
+  /* Flags for airspace having labels */
+  map::MapAirspaceTypes getShownAirspaceTextsByLayer() const;
+
+  const map::MapAirspaceFilter& getShownAirspaces() const
   {
     return airspaceTypes;
   }
@@ -197,6 +200,12 @@ private:
   virtual bool render(Marble::GeoPainter *painter, Marble::ViewportParams *viewport,
                       const QString& renderPos = "NONE", Marble::GeoSceneLayer *layer = nullptr) override;
 
+  /* Disable font anti-aliasing for default and painter font */
+  void setNoAntiAliasFont(PaintContext *context);
+
+  /* Restore normal font anti-aliasing for default and painter font */
+  void resetNoAntiAliasFont(PaintContext *context);
+
   /* Map objects currently shown */
   map::MapTypes objectTypes = map::NONE;
   map::MapDisplayTypes objectDisplayTypes = map::DISPLAY_TYPE_NONE;
@@ -226,7 +235,7 @@ private:
   MapPainterMark *mapPainterMark;
   MapPainterRoute *mapPainterRoute;
   MapPainterAircraft *mapPainterAircraft;
-  MapPainterTrack *mapPainterTrack;
+  MapPainterTrail *mapPainterTrack;
   MapPainterTop *mapPainterTop;
   MapPainterShip *mapPainterShip;
   MapPainterUser *mapPainterUser;
@@ -238,7 +247,8 @@ private:
   MapLayerSettings *layers = nullptr;
   MapPaintWidget *mapPaintWidget = nullptr;
   const MapLayer *mapLayer = nullptr, *mapLayerRoute = nullptr, *mapLayerEffective = nullptr;
-  bool verbose = false;
+  bool verbose = false, verboseDraw = false;
+  QFont::StyleStrategy savedFontStrategy, savedDefaultFontStrategy;
 
 };
 

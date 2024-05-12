@@ -26,7 +26,7 @@
 
 namespace map {
 struct MapResult;
-struct MapObjectRef;
+struct MapRef;
 struct RangeMarker;
 struct DistanceMarker;
 struct PatternMarker;
@@ -71,7 +71,7 @@ struct MapProcedureLegs;
 
 }
 
-class AircraftTrack;
+class AircraftTrail;
 
 /*
  * Contains all functions to draw a map including background, flight plan, navaids and whatnot.
@@ -184,17 +184,17 @@ public:
   /* true if any highlighting circles are to be drawn on the map */
   bool hasHighlights() const;
 
-  const AircraftTrack& getAircraftTrack() const
+  const AircraftTrail& getAircraftTrail() const
   {
-    return *aircraftTrack;
+    return *aircraftTrail;
   }
 
-  const AircraftTrack& getAircraftTrackLogbook() const
+  const AircraftTrail& getAircraftTrailLogbook() const
   {
-    return *aircraftTrackLogbook;
+    return *aircraftTrailLogbook;
   }
 
-  bool hasTrackPoints() const;
+  int getAircraftTrailSize() const;
 
   /* Disconnect painter to avoid updates while no data is available */
   void preDatabaseLoad();
@@ -223,12 +223,14 @@ public:
   void setShowMapObject(map::MapTypes type, bool show);
   void setShowMapObjects(map::MapTypes type, map::MapTypes mask);
   void setShowMapObjectDisplay(map::MapDisplayTypes type, bool show);
-  void setShowMapAirspaces(map::MapAirspaceFilter types);
+  void setShowMapAirspaces(const map::MapAirspaceFilter& types);
 
+  /* All currently set map display filters */
   map::MapTypes getShownMapTypes() const;
   map::MapDisplayTypes getShownMapDisplayTypes() const;
-  map::MapAirspaceFilter getShownAirspaces() const;
+  const map::MapAirspaceFilter& getShownAirspaces() const;
   map::MapAirspaceFilter getShownAirspaceTypesByLayer() const;
+  int getShownMinimumRunwayFt() const;
 
   /* User aircraft as shown on the map */
   const atools::fs::sc::SimConnectUserAircraft& getUserAircraft() const;
@@ -402,9 +404,9 @@ public:
   /* Print all layers to debug channel */
   void dumpMapLayers() const;
 
-  const QVector<map::MapObjectRef>& getRouteDrawnNavaidsConst() const;
+  const QVector<map::MapRef>& getRouteDrawnNavaidsConst() const;
 
-  QVector<map::MapObjectRef> *getRouteDrawnNavaids();
+  QVector<map::MapRef> *getRouteDrawnNavaids();
 
   const QString& getCurrentThemeId() const
   {
@@ -498,7 +500,7 @@ protected:
 
   virtual void resizeEvent(QResizeEvent *event) override;
 
-  void updateGeometryIndex(map::MapTypes oldTypes, map::MapDisplayTypes oldDisplayTypes);
+  void updateGeometryIndex(map::MapTypes oldTypes, map::MapDisplayTypes oldDisplayTypes, int oldMinRunwayLength);
 
   /* If width and height of a bounding rect are smaller than this: Use show point */
   static constexpr float POS_IS_POINT_EPSILON_DEG = 0.0001f;
@@ -557,7 +559,10 @@ protected:
   QString currentThemeId;
 
   /* Trail/track of user aircraft */
-  AircraftTrack *aircraftTrack = nullptr, *aircraftTrackLogbook = nullptr;
+  AircraftTrail *aircraftTrail = nullptr, *aircraftTrailLogbook = nullptr;
+
+  /* Skip the first unneeded render event after mouse events */
+  bool skipRender = false;
 
 private:
   /* Set map theme and adjust properties accordingly. themePath is the full path to the DGML */
@@ -590,5 +595,7 @@ private:
   /* true if inside paint event - avoids crashes due to nested calls */
   bool painting = false;
 };
+
+
 
 #endif // LITTLENAVMAP_NAVMAPPAINTWIDGET_H

@@ -48,6 +48,8 @@ class HtmlBuilder;
 }
 
 namespace map {
+
+struct AircraftTrailSegment;
 struct MapAirport;
 struct MapAirportMsa;
 struct MapVor;
@@ -297,6 +299,8 @@ public:
   void aircraftOnlineText(const atools::fs::sc::SimConnectAircraft& aircraft, const atools::sql::SqlRecord& onlineRec,
                           atools::util::HtmlBuilder& html);
 
+  void aircraftTrailText(const map::AircraftTrailSegment& trailSegment, atools::util::HtmlBuilder& html, bool logbook) const;
+
   /* User features / marks */
   void msaMarkerText(const map::MsaMarker& msa, atools::util::HtmlBuilder& html) const;
   void holdingMarkerText(const map::HoldingMarker& holding, atools::util::HtmlBuilder& html) const;
@@ -326,7 +330,7 @@ private:
   void head(atools::util::HtmlBuilder& html, const QString& text) const;
 
   bool nearestMapObjectsText(const map::MapAirport& airport, atools::util::HtmlBuilder& html,
-                             const map::MapResultIndex *nearest, const QString& header, bool frequencyCol,
+                             const map::MapResultIndex *nearestNav, const QString& header, bool frequencyCol,
                              bool airportCol,
                              int maxRows) const;
   void nearestMapObjectsTextRow(const map::MapAirport& airport, atools::util::HtmlBuilder& html, const QString& type,
@@ -417,7 +421,7 @@ private:
 
   void ilsTextProcInfo(const map::MapIls& ils, atools::util::HtmlBuilder& html) const;
   void ilsTextRunwayInfo(const map::MapIls& ils, atools::util::HtmlBuilder& html) const;
-  void ilsTextInternal(const map::MapIls& ils, atools::util::HtmlBuilder& html, bool procInfo, bool runwayInfo, bool infoOrTooltip) const;
+  void ilsTextInternal(const map::MapIls& ils, atools::util::HtmlBuilder& html, bool procInfo, bool infoOrTooltip) const;
 
   /* Add wind text for flight plan waypoints */
   void routeWindText(atools::util::HtmlBuilder& html, const Route& route, int index) const;

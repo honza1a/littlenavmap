@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 
 #include "common/dialogrecordhelper.h"
 
+#include "atools.h"
 #include "sql/sqlrecord.h"
 #include "common/unit.h"
 
@@ -51,10 +52,28 @@ bool DialogRecordHelper::isRemoveValue(QCheckBox *checkBox)
     return false;
 }
 
+void DialogRecordHelper::setStrValueOrNull(const QString& name, const QString& value)
+{
+  if(value.isEmpty())
+    record->setNull(name);
+  else
+    record->setValue(name, value);
+}
+
 void DialogRecordHelper::dialogToRecordStr(QLineEdit *widget, const QString& name, QCheckBox *checkBox, bool toUpper)
 {
   if(isSetValue(checkBox))
-    record->setValue(name, toUpper ? widget->text().toUpper() : widget->text());
+    setStrValueOrNull(name, toUpper ? widget->text().toUpper() : widget->text());
+
+  if(isRemoveValue(checkBox))
+    // do not set to null but remove completely
+    record->remove(name);
+}
+
+void DialogRecordHelper::dialogToRecordPath(QLineEdit *widget, const QString& name, QCheckBox *checkBox)
+{
+  if(isSetValue(checkBox))
+    setStrValueOrNull(name, atools::nativeCleanPath(widget->text()));
 
   if(isRemoveValue(checkBox))
     // do not set to null but remove completely
@@ -64,7 +83,7 @@ void DialogRecordHelper::dialogToRecordStr(QLineEdit *widget, const QString& nam
 void DialogRecordHelper::dialogToRecordStr(QPlainTextEdit *widget, const QString& name, QCheckBox *checkBox)
 {
   if(isSetValue(checkBox))
-    record->setValue(name, widget->toPlainText());
+    setStrValueOrNull(name, widget->toPlainText());
 
   if(isRemoveValue(checkBox))
     record->remove(name);
@@ -119,10 +138,15 @@ void DialogRecordHelper::dialogToRecordInt(QComboBox *widget, const QString& nam
     record->remove(name);
 }
 
-void DialogRecordHelper::dialogToRecordDateTime(QDateTimeEdit *widget, const QString& name, QCheckBox *checkBox)
+void DialogRecordHelper::dialogToRecordDateTime(QDateTimeEdit *widget, const QString& name, QCheckBox *checkBox, bool localTime)
 {
   if(isSetValue(checkBox))
-    record->setValue(name, widget->dateTime());
+  {
+    if(localTime)
+      record->setValue(name, atools::convertToIsoWithOffset(widget->dateTime()));
+    else
+      record->setValue(name, widget->dateTime());
+  }
 
   if(isRemoveValue(checkBox))
     record->remove(name);

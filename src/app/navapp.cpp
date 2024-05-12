@@ -18,7 +18,9 @@
 #include "app/navapp.h"
 
 #include "airspace/airspacecontroller.h"
-#include "common/aircrafttrack.h"
+#include "atools.h"
+#include "common/aircrafttrail.h"
+#include "common/constants.h"
 #include "common/elevationprovider.h"
 #include "common/updatehandler.h"
 #include "common/vehicleicons.h"
@@ -29,13 +31,14 @@
 #include "fs/common/magdecreader.h"
 #include "fs/common/morareader.h"
 #include "fs/db/databasemeta.h"
-#include "fs/weather/metar.h"
 #include "gui/errorhandler.h"
 #include "gui/mainwindow.h"
 #include "gui/stylehandler.h"
+#include "mapgui/mapthemehandler.h"
 #include "route/routealtitude.h"
 #include "util/properties.h"
 #include "logbook/logdatacontroller.h"
+#include "logging/logginghandler.h"
 #include "mapgui/mapmarkhandler.h"
 #include "mapgui/mapairporthandler.h"
 #include "mapgui/mapdetailhandler.h"
@@ -57,6 +60,7 @@
 #include "web/webcontroller.h"
 #include "web/webmapcontroller.h"
 #include "app/dataexchange.h"
+#include "settings/settings.h"
 
 #include "ui_mainwindow.h"
 
@@ -103,6 +107,8 @@ bool NavApp::shuttingDown = false;
 bool NavApp::loadingDatabase = false;
 bool NavApp::mainWindowVisible = false;
 
+using atools::settings::Settings;
+
 NavApp::NavApp(int& argc, char **argv, int flags)
   : atools::gui::Application(argc, argv, flags)
 {
@@ -112,11 +118,8 @@ NavApp::NavApp(int& argc, char **argv, int flags)
 
 NavApp::~NavApp()
 {
-  delete dataExchange;
-  dataExchange = nullptr;
-
-  delete startupOptions;
-  startupOptions = nullptr;
+  ATOOLS_DELETE(dataExchange);
+  ATOOLS_DELETE(startupOptions);
 }
 
 void NavApp::initApplication()
@@ -213,6 +216,13 @@ void NavApp::initQueries()
   procedureQuery->initQueries();
 }
 
+void NavApp::showElevationProviderErrors()
+{
+  qDebug() << Q_FUNC_INFO;
+  if(elevationProvider != nullptr)
+    elevationProvider->showErrors();
+}
+
 void NavApp::initElevationProvider()
 {
   qDebug() << Q_FUNC_INFO;
@@ -222,111 +232,32 @@ void NavApp::initElevationProvider()
 
 void NavApp::deInit()
 {
-  qDebug() << Q_FUNC_INFO;
-
-  qDebug() << Q_FUNC_INFO << "delete dataExchange";
-  delete dataExchange;
-  dataExchange = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete webController";
-  delete webController;
-  webController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete styleHandler";
-  delete styleHandler;
-  styleHandler = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete userdataController";
-  delete userdataController;
-  userdataController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapMarkHandler";
-  delete mapMarkHandler;
-  mapMarkHandler = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapAirportHandler";
-  delete mapAirportHandler;
-  mapAirportHandler = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete mapDetailHandler";
-  delete mapDetailHandler;
-  mapDetailHandler = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete logdataController";
-  delete logdataController;
-  logdataController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete onlinedataController";
-  delete onlinedataController;
-  onlinedataController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete airwayController";
-  delete trackController;
-  trackController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete aircraftPerfController";
-  delete aircraftPerfController;
-  aircraftPerfController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete airspaceController";
-  delete airspaceController;
-  airspaceController = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete updateHandler";
-  delete updateHandler;
-  updateHandler = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete connectClient";
-  delete connectClient;
-  connectClient = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete elevationProvider";
-  delete elevationProvider;
-  elevationProvider = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete airportQuery";
-  delete airportQuerySim;
-  airportQuerySim = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete airportQueryNav";
-  delete airportQueryNav;
-  airportQueryNav = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete infoQuery";
-  delete infoQuery;
-  infoQuery = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete approachQuery";
-  delete procedureQuery;
-  procedureQuery = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete databaseManager";
-  delete databaseManager;
-  databaseManager = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete databaseMeta";
-  delete databaseMetaSim;
-  databaseMetaSim = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete databaseMetaNav";
-  delete databaseMetaNav;
-  databaseMetaNav = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete magDecReader";
-  delete magDecReader;
-  magDecReader = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete moraReader";
-  delete moraReader;
-  moraReader = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete vehicleIcons";
-  delete vehicleIcons;
-  vehicleIcons = nullptr;
-
-  qDebug() << Q_FUNC_INFO << "delete splashScreen";
-  delete splashScreen;
-  splashScreen = nullptr;
+  ATOOLS_DELETE_LOG(dataExchange);
+  ATOOLS_DELETE_LOG(webController);
+  ATOOLS_DELETE_LOG(styleHandler);
+  ATOOLS_DELETE_LOG(userdataController);
+  ATOOLS_DELETE_LOG(mapMarkHandler);
+  ATOOLS_DELETE_LOG(mapAirportHandler);
+  ATOOLS_DELETE_LOG(mapDetailHandler);
+  ATOOLS_DELETE_LOG(logdataController);
+  ATOOLS_DELETE_LOG(onlinedataController);
+  ATOOLS_DELETE_LOG(trackController);
+  ATOOLS_DELETE_LOG(aircraftPerfController);
+  ATOOLS_DELETE_LOG(airspaceController);
+  ATOOLS_DELETE_LOG(updateHandler);
+  ATOOLS_DELETE_LOG(connectClient);
+  ATOOLS_DELETE_LOG(elevationProvider);
+  ATOOLS_DELETE_LOG(airportQuerySim);
+  ATOOLS_DELETE_LOG(airportQueryNav);
+  ATOOLS_DELETE_LOG(infoQuery);
+  ATOOLS_DELETE_LOG(procedureQuery);
+  ATOOLS_DELETE_LOG(databaseManager);
+  ATOOLS_DELETE_LOG(databaseMetaSim);
+  ATOOLS_DELETE_LOG(databaseMetaNav);
+  ATOOLS_DELETE_LOG(magDecReader);
+  ATOOLS_DELETE_LOG(moraReader);
+  ATOOLS_DELETE_LOG(vehicleIcons);
+  ATOOLS_DELETE_LOG(splashScreen);
 }
 
 const DataExchange *NavApp::getDataExchangeConst()
@@ -349,8 +280,7 @@ bool NavApp::initDataExchange()
 
 void NavApp::deInitDataExchange()
 {
-  delete dataExchange;
-  dataExchange = nullptr;
+  ATOOLS_DELETE_LOG(dataExchange);
 }
 
 void NavApp::checkForUpdates(int channelOpts, bool manual, bool startup, bool forceDebug)
@@ -636,10 +566,9 @@ void NavApp::updateRouteCycleMetadata()
   getRoute().updateRouteCycleMetadata();
 }
 
-QString NavApp::getRouteStringDefaultOpts()
+QString NavApp::getRouteStringLogbook()
 {
-  return RouteStringWriter().createStringForRoute(getRouteConst(), NavApp::getRouteCruiseSpeedKts(),
-                                                  rs::DEFAULT_OPTIONS | rs::ALT_AND_SPEED_METRIC);
+  return RouteStringWriter().createStringForRoute(getRouteConst(), NavApp::getRouteCruiseSpeedKts(), rs::DEFAULT_OPTIONS_LOGBOOK);
 }
 
 const atools::geo::Rect& NavApp::getRouteRect()
@@ -921,6 +850,51 @@ void NavApp::addStartupOptionStrList(const QString& key, const QStringList& valu
   startupOptions->setPropertyStrList(key, value);
 }
 
+void NavApp::clearStartupOptions()
+{
+  startupOptions->clear();
+}
+
+void getCrashReportFiles(QStringList& crashReportFiles, QString& reportFilename, bool manual)
+{
+  // Collect all files which should be skipped on startup
+  Settings& settings = Settings::instance();
+  crashReportFiles.append(settings.valueStr(lnm::ROUTE_FILENAME));
+  crashReportFiles.append(settings.valueStr(lnm::AIRCRAFT_PERF_FILENAME));
+  crashReportFiles.append(Settings::getConfigFilename(lnm::AIRCRAFT_TRACK_SUFFIX));
+  crashReportFiles.append(Settings::getFilename());
+  crashReportFiles.append(Settings::getConfigFilename(".lnmpln"));
+
+  // Add log files last to catch any error which appear while compressing
+  crashReportFiles.append(atools::logging::LoggingHandler::getLogFiles());
+
+  reportFilename = Settings::getConfigFilename(manual ? "_issuereport.zip" : "_crashreport.zip", "crashreports");
+}
+
+void NavApp::recordStartNavApp()
+{
+#ifndef DEBUG_DISABLE_CRASH_REPORT
+
+  QStringList crashReportFiles;
+  QString reportFilename;
+  getCrashReportFiles(crashReportFiles, reportFilename, false /* manual */);
+
+  Application::recordStart(nullptr, Settings::getConfigFilename(".running"), reportFilename, crashReportFiles,
+                           lnm::helpOnlineUrl, lnm::helpLanguageOnline());
+#endif
+  // Keep command line options to avoid using the wrong configuration folder
+}
+
+QString NavApp::buildCrashReportNavAppManual()
+{
+  QString reportFilename;
+  QStringList crashReportFiles;
+  getCrashReportFiles(crashReportFiles, reportFilename, true /* manual */);
+
+  Application::buildCrashReport(reportFilename, crashReportFiles);
+  return reportFilename;
+}
+
 void NavApp::setToolTipsEnabledMainMenu(bool enabled)
 {
   // Enable tooltips for all menus
@@ -933,7 +907,8 @@ void NavApp::setToolTipsEnabledMainMenu(bool enabled)
     if(menu != nullptr)
     {
       menu->setToolTipsVisible(enabled);
-      for(QAction *sub : menu->actions())
+      const QList<QAction *> actions = menu->actions();
+      for(QAction *sub : actions)
       {
         if(sub->menu() != nullptr)
           stack.append(sub);
@@ -1191,6 +1166,11 @@ MapThemeHandler *NavApp::getMapThemeHandler()
   return mainWindow->getMapThemeHandler();
 }
 
+bool NavApp::isDarkMapTheme()
+{
+  return getMapThemeHandler()->isDarkTheme(getMapPaintWidgetGui()->getCurrentThemeId());
+}
+
 const QString& NavApp::getCurrentRouteFilepath()
 {
   return mainWindow->getRouteController()->getRouteFilepath();
@@ -1279,24 +1259,24 @@ const atools::fs::db::DatabaseMeta *NavApp::getDatabaseMetaNav()
   return databaseMetaNav;
 }
 
-const AircraftTrack& NavApp::getAircraftTrack()
+const AircraftTrail& NavApp::getAircraftTrail()
 {
-  return getMapWidgetGui()->getAircraftTrack();
+  return getMapWidgetGui()->getAircraftTrail();
 }
 
-const AircraftTrack& NavApp::getAircraftTrackLogbook()
+const AircraftTrail& NavApp::getAircraftTrailLogbook()
 {
-  return getMapWidgetGui()->getAircraftTrackLogbook();
+  return getMapWidgetGui()->getAircraftTrailLogbook();
 }
 
-void NavApp::deleteAircraftTrackLogbook()
+void NavApp::deleteAircraftTrailLogbook()
 {
-  return getMapWidgetGui()->deleteAircraftTrackLogbook();
+  return getMapWidgetGui()->deleteAircraftTrailLogbook();
 }
 
-bool NavApp::isAircraftTrackEmpty()
+bool NavApp::isAircraftTrailEmpty()
 {
-  return getAircraftTrack().isEmpty();
+  return getAircraftTrail().isEmpty();
 }
 
 map::MapTypes NavApp::getShownMapTypes()
@@ -1309,7 +1289,7 @@ map::MapDisplayTypes NavApp::getShownMapDisplayTypes()
   return mainWindow->getMapWidget()->getShownMapDisplayTypes();
 }
 
-map::MapAirspaceFilter NavApp::getShownMapAirspaces()
+const map::MapAirspaceFilter& NavApp::getShownMapAirspaces()
 {
   return mainWindow->getMapWidget()->getShownAirspaces();
 }

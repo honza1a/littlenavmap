@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2022 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -17,12 +17,11 @@
 
 #include "query/airspacequery.h"
 
+#include "atools.h"
 #include "common/constants.h"
-#include "common/maptools.h"
 #include "common/maptypesfactory.h"
 #include "fs/common/binarygeometry.h"
 #include "mapgui/maplayer.h"
-#include "options/optiondata.h"
 #include "settings/settings.h"
 #include "sql/sqldatabase.h"
 #include "sql/sqlutil.h"
@@ -108,7 +107,7 @@ void AirspaceQuery::getAirspaceById(map::MapAirspace& airspace, int airspaceId)
 }
 
 const QList<map::MapAirspace> *AirspaceQuery::getAirspaces(const GeoDataLatLonBox& rect, const MapLayer *mapLayer,
-                                                           map::MapAirspaceFilter filter, float flightPlanAltitude,
+                                                           const map::MapAirspaceFilter& filter, float flightPlanAltitude,
                                                            bool lazy, bool& overflow)
 {
   airspaceCache.updateCache(rect, mapLayer, queryRectInflationFactor, queryRectInflationIncrement, lazy,
@@ -117,9 +116,7 @@ const QList<map::MapAirspace> *AirspaceQuery::getAirspaces(const GeoDataLatLonBo
     return curLayer->hasSameQueryParametersAirspace(newLayer);
   });
 
-  if(filter.types != lastAirspaceFilter.types || filter.flags != lastAirspaceFilter.flags ||
-     filter.minAltitudeFt != lastAirspaceFilter.minAltitudeFt || filter.maxAltitudeFt != lastAirspaceFilter.maxAltitudeFt ||
-     atools::almostNotEqual(lastFlightplanAltitude, flightPlanAltitude))
+  if(filter != lastAirspaceFilter || atools::almostNotEqual(lastFlightplanAltitude, flightPlanAltitude))
   {
     // Need a few more parameters to clear the cache which is different to other map features
     airspaceCache.list.clear();
@@ -180,7 +177,7 @@ const QList<map::MapAirspace> *AirspaceQuery::getAirspaces(const GeoDataLatLonBo
         // Get the airspace objects without geometry
         for(const GeoDataLatLonBox& r : query::splitAtAntiMeridian(rect, queryRectInflationFactor, queryRectInflationIncrement))
         {
-          for(const QString& typeStr : typeStrings)
+          for(const QString& typeStr : qAsConst(typeStrings))
           {
             query::bindRect(r, query);
             query->bindValue(":type", typeStr);
@@ -200,6 +197,9 @@ const QList<map::MapAirspace> *AirspaceQuery::getAirspaces(const GeoDataLatLonBo
             {
               // Avoid double airspaces which can happen if they cross the date boundary
               if(ids.contains(query->valueInt("boundary_id")))
+                continue;
+
+              if(hasMultipleCode && filter.flags.testFlag(map::AIRSPACE_NO_MULTIPLE_Z) && query->valueStr("multiple_code") == "Z")
                 continue;
 
               if(hasFirUir)
@@ -232,6 +232,12 @@ const QList<map::MapAirspace> *AirspaceQuery::getAirspaces(const GeoDataLatLonBo
   return &airspaceCache.list;
 }
 
+void AirspaceQuery::airspaceGeometry(LineString *lines, const QByteArray& bytes)
+{
+  atools::fs::common::BinaryGeometry geometry(bytes);
+  geometry.swapGeometry(*lines);
+}
+
 const LineString *AirspaceQuery::getAirspaceGeometryById(int airspaceId)
 {
   if(!query::valid(Q_FUNC_INFO, airspaceLinesByIdQuery))
@@ -241,19 +247,16 @@ const LineString *AirspaceQuery::getAirspaceGeometryById(int airspaceId)
     return airspaceLineCache.object(airspaceId);
   else
   {
-    LineString *lines = new LineString;
+    LineString *linestring = new LineString;
 
     airspaceLinesByIdQuery->bindValue(":id", airspaceId);
     airspaceLinesByIdQuery->exec();
     if(airspaceLinesByIdQuery->next())
-    {
-      atools::fs::common::BinaryGeometry geometry(airspaceLinesByIdQuery->value("geometry").toByteArray());
-      geometry.swapGeometry(*lines);
-    }
+      airspaceGeometry(linestring, airspaceLinesByIdQuery->value("geometry").toByteArray());
     airspaceLinesByIdQuery->finish();
-    airspaceLineCache.insert(airspaceId, lines);
+    airspaceLineCache.insert(airspaceId, linestring);
 
-    return lines;
+    return linestring;
   }
 }
 
@@ -285,8 +288,7 @@ const LineString *AirspaceQuery::getAirspaceGeometryByFile(QString callsign)
         // Check if the basename matches the callsign
         if(basename == callsign.toUpper())
         {
-          atools::fs::common::BinaryGeometry geo(airspaceGeoByFileQuery->value("geometry").toByteArray());
-          geo.swapGeometry(*lineString);
+          airspaceGeometry(lineString, airspaceGeoByFileQuery->value("geometry").toByteArray());
           break;
         }
       }
@@ -354,10 +356,7 @@ const LineString *AirspaceQuery::airspaceGeometryByNameInternal(const QString& c
       airspaceGeoByNameQuery->exec();
 
       if(airspaceGeoByNameQuery->next())
-      {
-        atools::fs::common::BinaryGeometry geo(airspaceGeoByNameQuery->value("geometry").toByteArray());
-        geo.swapGeometry(*lineString);
-      }
+        airspaceGeometry(lineString, airspaceGeoByNameQuery->value("geometry").toByteArray());
 
       airspaceGeoByNameQuery->finish();
       onlineCenterGeoCache.insert(callsign, lineString);
@@ -428,7 +427,9 @@ void AirspaceQuery::initQueries()
     SqlRecord rec = db->record("boundary");
     if(rec.contains("time_code"))
       airspaceQueryBase += ", time_code ";
-    if(rec.contains("multiple_code"))
+
+    hasMultipleCode = rec.contains("multiple_code");
+    if(hasMultipleCode)
       airspaceQueryBase += ", multiple_code ";
 
     if(rec.contains("restrictive_type"))

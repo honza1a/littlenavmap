@@ -17,10 +17,12 @@
 
 #include "routeexport/routeexport.h"
 
+#include "fs/gpx/gpxio.h"
+#include "fs/gpx/gpxtypes.h"
 #include "routeexport/routeexportformat.h"
 #include "routeexport/routeexportdialog.h"
 #include "atools.h"
-#include "common/aircrafttrack.h"
+#include "common/aircrafttrail.h"
 #include "common/constants.h"
 #include "exception.h"
 #include "fs/perf/aircraftperf.h"
@@ -58,6 +60,8 @@ RouteExport::RouteExport(MainWindow *parent)
 
   // Export all selected in button bar
   connect(multiExportDialog, &RouteMultiExportDialog::saveSelectedButtonClicked, this, &RouteExport::routeMultiExport);
+
+  connect(NavApp::navAppInstance(), &QGuiApplication::fontChanged, multiExportDialog, &RouteMultiExportDialog::fontChanged);
 }
 
 RouteExport::~RouteExport()
@@ -1255,7 +1259,7 @@ bool RouteExport::routeExportGpx(const RouteExportFormat& format)
   {
     if(exportFlightplanAsGpx(routeFile))
     {
-      if(NavApp::getAircraftTrack().isEmpty())
+      if(NavApp::getAircraftTrail().isEmpty())
         mainWindow->setStatusMessage(tr("Flight plan saved as GPX."));
       else
         mainWindow->setStatusMessage(tr("Flight plan and track saved as GPX."));
@@ -1839,7 +1843,7 @@ bool RouteExport::exportFlighplanAsCorteIn(const QString& filename)
   QString txt = RouteStringWriter().
                 createStringForRoute(buildAdjustedRoute(rf::DEFAULT_OPTS | rf::REMOVE_RUNWAY_PROC), 0.f,
                                      rs::DCT | rs::NO_FINAL_DCT | rs::START_AND_DEST | rs::SID_STAR | rs::SID_STAR_SPACE |
-                                     rs::RUNWAY /*| rs::APPROACH unreliable */ | rs::FLIGHTLEVEL);
+                                     rs::CORTEIN_DEPARTURE_RUNWAY /*| rs::CORTEIN_APPROACH unreliable */ | rs::FLIGHTLEVEL);
 
   const atools::fs::pln::Flightplan& flightplan = NavApp::getRouteConst().getFlightplanConst();
 
@@ -2006,9 +2010,8 @@ bool RouteExport::exportFlightplanAsGpx(const QString& filename)
 
   try
   {
-    FlightplanIO().saveGpx(buildAdjustedRoute(rf::DEFAULT_OPTS_GPX).getFlightplanConst(), filename,
-                           NavApp::getAircraftTrack().getLineStrings(), NavApp::getAircraftTrack().getTimestampsMs(),
-                           static_cast<int>(NavApp::getRouteConst().getCruiseAltitudeFt()));
+    atools::fs::gpx::GpxIO().saveGpx(filename,
+                                     NavApp::getAircraftTrail().toGpxData(buildAdjustedRoute(rf::DEFAULT_OPTS_GPX).getFlightplanConst()));
   }
   catch(atools::Exception& e)
   {
@@ -2039,8 +2042,13 @@ Route RouteExport::buildAdjustedRoute(rf::RouteAdjustOptions options)
   {
     if(NavApp::getMainUi()->actionRouteSaveApprWaypointsOpt->isChecked())
       options |= rf::SAVE_APPROACH_WP;
+
     if(NavApp::getMainUi()->actionRouteSaveSidStarWaypointsOpt->isChecked())
-      options |= rf::SAVE_SIDSTAR_WP;
+    {
+      options |= rf::SAVE_SID_WP;
+      options |= rf::SAVE_STAR_WP;
+    }
+
     if(NavApp::getMainUi()->actionRouteSaveAirwayWaypointsOpt->isChecked())
       options |= rf::SAVE_AIRWAY_WP;
   }

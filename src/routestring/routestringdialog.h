@@ -23,6 +23,8 @@
 #include <QDialog>
 #include <QTimer>
 
+class QMenu;
+
 namespace Ui {
 class RouteStringDialog;
 }
@@ -93,6 +95,8 @@ public:
   /* Prepends to list */
   void addRouteDescription(const QString& routeString);
 
+  void fontChanged(const QFont& font);
+
 signals:
   /* Emitted when user clicks "Create flight plan" */
   void routeFromFlightplan(const atools::fs::pln::Flightplan& flightplan, bool adjustAltitude, bool changed, bool undo);
@@ -119,6 +123,8 @@ private:
   /* Catch events to allow repositioning */
   virtual void showEvent(QShowEvent *) override;
   virtual void hideEvent(QHideEvent *) override;
+
+  QMenu *advancedMenu = nullptr;
 
   Ui::RouteStringDialog *ui;
   atools::fs::pln::Flightplan *flightplan = nullptr;

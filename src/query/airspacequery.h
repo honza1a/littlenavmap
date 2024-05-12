@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ public:
 
   /* Get airspaces for map display */
   const QList<map::MapAirspace> *getAirspaces(const Marble::GeoDataLatLonBox& rect, const MapLayer *mapLayer,
-                                              map::MapAirspaceFilter filter, float flightPlanAltitude, bool lazy, bool& overflow);
+                                              const map::MapAirspaceFilter& filter, float flightPlanAltitude, bool lazy, bool& overflow);
   const atools::geo::LineString *getAirspaceGeometryById(int airspaceId);
 
   /* Query raw geometry blob by online callsign (name) and facility type */
@@ -93,6 +93,7 @@ public:
 private:
   void updateAirspaceStatus();
   const atools::geo::LineString *airspaceGeometryByNameInternal(const QString& callsign, const QString& facilityType);
+  void airspaceGeometry(atools::geo::LineString* lines, const QByteArray& bytes);
 
   MapTypesFactory *mapTypesFactory;
   atools::sql::SqlDatabase *db;
@@ -117,6 +118,8 @@ private:
   atools::sql::SqlQuery *airspaceByRectQuery = nullptr, *airspaceByRectAltRangeQuery = nullptr, *airspaceByRectAltQuery = nullptr,
                         *airspaceLinesByIdQuery = nullptr, *airspaceGeoByNameQuery = nullptr, *airspaceGeoByFileQuery = nullptr,
                         *airspaceByIdQuery = nullptr, *airspaceInfoQuery = nullptr;
+
+  bool hasMultipleCode = false;
 
   /* Source database definition */
   map::MapAirspaceSources source;

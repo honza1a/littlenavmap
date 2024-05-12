@@ -20,6 +20,7 @@
 
 #include "common/mapresult.h"
 #include "common/procflags.h"
+#include "fs/pln/flightplanconstants.h"
 
 #include <QColor>
 
@@ -173,7 +174,7 @@ inline uint qHash(const proc::MapProcedureRef& ref)
 /* Procedure leg */
 struct MapProcedureLeg
 {
-  QString fixType, fixIdent, fixRegion,
+  QString fixType, fixIdent, fixAirportIdent, fixRegion,
           recFixType, recFixIdent, recFixRegion, /* Recommended fix also used by rho and theta */
           turnDirection, /* Turn to this fix*/
           arincDescrCode /* 5.17 */;
@@ -373,6 +374,12 @@ struct MapProcedureLeg
     return type == proc::INITIAL_FIX || type == proc::CUSTOM_APP_START;
   }
 
+  /* Used to detect overlapping transition and approach legs */
+  bool isAlmostEqual(const proc::MapProcedureLeg& other) const
+  {
+    return isValid() && fixPos.almostEqual(other.fixPos) && fixIdent == other.fixIdent && fixRegion == other.fixRegion;
+  }
+
   /* Do not display distance e.g. for course to altitude */
   bool noDistanceDisplay() const;
 
@@ -400,13 +407,14 @@ struct MapProcedureLegs
   atools::geo::Rect bounding;
 
   QString type, /* GNSS (display GLS) GPS IGS ILS LDA LOC LOCB NDB NDBDME RNAV (RNV) SDF TCN VOR VORDME */
-          suffix, approachFixIdent /* Approach fix or SID/STAR name */,
-          arincName, transitionType, transitionFixIdent,
-          runway, /* Runway from the procedure does not have to match the airport runway but is saved */
+          suffix, procedureFixIdent /* Approach fix or SID/STAR name */,
+          arincName, /* ARINC for procedures or runways ("ALL", "16B", etc.) for SID and STAR */
+          transitionType, transitionFixIdent,
+          runway, /* Runway from the procedure does not have to match the airport runway but is saved. Used by approaches and SID. */
           aircraftCategory; /* 5.221 */
 
   /* Only for approaches - the found runway end at the airport - can be different due to fuzzy search.
-   * Coordinates might be set even for CTL approaches where name is empty in this case.s */
+   * Coordinates might be set even for CTL approaches where name is empty in this case. */
   map::MapRunwayEnd runwayEnd;
   proc::MapProcedureTypes mapType = PROCEDURE_NONE;
 
@@ -427,11 +435,17 @@ struct MapProcedureLegs
        rnp, /* One or more legs have a required navigation performance */
        verticalAngle; /* One or more legs have a vertical angle */
 
-  /* Short display type name */
+  /* Short display type name "VOR" or "ILS" */
   QString displayType() const
   {
     // Correct wrong designation of GLS approaches as GNSS for display
     return type == "GNSS" ? "GLS" : type;
+  }
+
+  /* "VOR-A" or "ILS-Z" */
+  QString displayTypeAndSuffix() const
+  {
+    return suffix.isEmpty() ? type : type + '-' + suffix;
   }
 
   static QString displayType(const QString& type)
@@ -482,12 +496,12 @@ struct MapProcedureLegs
 
   bool isCustomApproach() const
   {
-    return type == "CUSTOM";
+    return type == atools::fs::pln::APPROACH_TYPE_CUSTOM;
   }
 
   bool isCustomDeparture() const
   {
-    return type == "CUSTOMDEPART";
+    return type == atools::fs::pln::SID_TYPE_CUSTOM;
   }
 
   bool isRnavGps() const
@@ -572,11 +586,48 @@ struct MapProcedureLegs
   /* Positions of all legs not including missed approach */
   atools::geo::LineString buildGeometry() const;
 
+  bool isProcedureEmpty() const
+  {
+    return procedureLegs.isEmpty();
+  }
+
+  bool isTransitionEmpty() const
+  {
+    return transitionLegs.isEmpty();
+  }
+
+  /* Remove transition type or missed and convert to SID, STAR or approach */
+  proc::MapProcedureTypes getProcedureTypeBase() const
+  {
+    return getProcedureTypeBase(mapType);
+  }
+
+  static proc::MapProcedureTypes getProcedureTypeBase(proc::MapProcedureTypes type);
+
 private:
-  MapProcedureLeg& atInternal(int i);
-  const MapProcedureLeg& atInternalConst(int i) const;
-  int apprIdx(int i) const;
-  int transIdx(int i) const;
+  MapProcedureLeg& atInternal(int i)
+  {
+    return isDeparture() ?
+           (i < procedureLegs.size() ? procedureLegs[apprIdx(i)] : transitionLegs[transIdx(i)]) :
+           (i < transitionLegs.size() ? transitionLegs[transIdx(i)] : procedureLegs[apprIdx(i)]);
+  }
+
+  const MapProcedureLeg& atInternalConst(int i) const
+  {
+    return isDeparture() ?
+           (i < procedureLegs.size() ? procedureLegs.at(apprIdx(i)) : transitionLegs.at(transIdx(i))) :
+           (i < transitionLegs.size() ? transitionLegs.at(transIdx(i)) : procedureLegs.at(apprIdx(i)));
+  }
+
+  int apprIdx(int i) const
+  {
+    return isDeparture() ? i : i - transitionLegs.size();
+  }
+
+  int transIdx(int i) const
+  {
+    return isDeparture() ? i - procedureLegs.size() : i;
+  }
 
   bool isDeparture() const
   {
@@ -606,6 +657,7 @@ QString procedureFixType(const QString& type);
 /* Ident name and FAF, MAP, IAF */
 QString procedureLegFixStr(const proc::MapProcedureLeg& leg);
 
+/* "LOC" -> "Localizer", "TCN" -> "TACAN" */
 QString procedureType(const QString& type);
 proc::ProcedureLegType procedureLegEnum(const QString& type);
 QString procedureLegTypeStr(ProcedureLegType type);
@@ -613,6 +665,7 @@ QString procedureLegTypeShortStr(ProcedureLegType type);
 QString procedureLegTypeFullStr(ProcedureLegType type);
 QString procedureLegRemarks(proc::ProcedureLegType);
 QString altRestrictionText(const MapAltRestriction& restriction);
+QString vertRestrictionText(const MapProcedureLeg& procedureLeg);
 
 /* Slash separated list of all restrictions, altitude, speed and angle */
 QStringList restrictionText(const MapProcedureLeg& procedureLeg);
@@ -667,11 +720,11 @@ void procedureFlags(const Route& route, const map::MapBase *base, bool *departur
                     bool *departureProc = nullptr);
 
 /* Check if airport can be added as departure, destination or alternate and gives
- * information if menu items should be disabled.
+ * information if menu items should be disabled. disable is set to true if needed but left alone otherwise.
  * Returns suffix string for menu items. */
-QString  procedureTextSuffixDeparture(const Route& route, const map::MapAirport& airport, bool& disable);
-QString  procedureTextSuffixDestination(const Route& route, const map::MapAirport& airport, bool& disable);
-QString  procedureTextSuffixAlternate(const Route& route, const map::MapAirport& airport, bool& disable);
+QString  procedureTextSuffixDepartDest(const Route& route, const map::MapAirport& airport, bool *disable = nullptr);
+QString  procedureTextSuffixAlternate(const Route& route, const map::MapAirport& airport, bool *disable = nullptr);
+QString  procedureTextSuffixDirectTo(const Route& route, int legIndex, const map::MapAirport *airport, bool *disable = nullptr);
 
 QString aircraftCategoryText(const QString& cat);
 

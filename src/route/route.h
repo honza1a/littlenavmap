@@ -172,9 +172,6 @@ public:
     return constFirst();
   }
 
-  /* Returns an empty leg if the index is not valid */
-  const RouteLeg& getLegAt(int index) const;
-
   /* First leg of departure procedure. 1 if SID used otherwise 0. */
   int getSidLegIndex() const;
   const RouteLeg& getSidLeg() const;
@@ -189,7 +186,7 @@ public:
   const RouteLeg& getDestinationLeg() const;
 
   /* Always destination airport after missed (if any) and one before the alternate if any.
-   *  Not necessarily an airport. */
+   * Not necessarily an airport. */
   int getDestinationAirportLegIndex() const;
   const RouteLeg& getDestinationAirportLeg() const;
 
@@ -289,13 +286,17 @@ public:
 
   /* Get nearest flight plan leg to given screen position xs/ys. */
   void getNearest(const CoordinateConverter& conv, int xs, int ys, int screenDistance, map::MapResult& mapobjects,
-                  map::MapObjectQueryTypes types, const QVector<map::MapObjectRef>& routeDrawnNavaids) const;
+                  map::MapObjectQueryTypes types, const QVector<map::MapRef>& routeDrawnNavaids) const;
 
   /* Get nearest recommended navaids to given screen position xs/ys. */
   void getNearestRecommended(const CoordinateConverter& conv, int xs, int ys, int screenDistance, map::MapResult& mapobjects,
-                             map::MapObjectQueryTypes types, const QVector<map::MapObjectRef>& routeDrawnNavaids) const;
+                             map::MapObjectQueryTypes types, const QVector<map::MapRef>& routeDrawnNavaids) const;
 
-  void eraseAirway(int row);
+  /* Removes airway from flight plan entry */
+  void eraseAirwayFlightplan(int row);
+
+  /* Removes airway from flight plan entry and route leg */
+  void eraseAirwayLeg(int i);
 
   /* @return true if any leg has an airway name */
   bool hasAirways() const;
@@ -403,7 +404,12 @@ public:
 
   /* Arrival rw is either STAR or approach */
   void getRunwayNames(QString& departure, QString& arrival) const;
-  void getApproachNames(QString& approachArincName, QString& approachTransition) const;
+
+  /* Get approach ARINC name including suffix and suffix separately */
+  void getApproachNames(QString& approachArincName, QString& approachTransition, QString& approachSuffix) const;
+
+  /* Full name plus forward slash  separator like "/LMA.I05R-Z". Transition plus ARINC name. */
+  QString getFullApproachName() const;
 
   const QString& getSidRunwayName() const;
   const QString& getStarRunwayName() const;
@@ -452,7 +458,7 @@ public:
   void removeMissedLegs();
 
   /* Deletes flight plan properties too */
-  void removeProcedureLegs();
+  void removeAllProcedureLegs();
   void removeProcedureLegs(proc::MapProcedureTypes type);
 
   /* Needed to activate missed approach sequencing or not depending on visibility state */
@@ -649,6 +655,16 @@ public:
    */
   QString getProcedureLegText(proc::MapProcedureTypes mapType, bool includeRunway, bool missedAsApproach, bool transitionAsProcedure) const;
 
+  /* Get texts for deviation and descent angles after passing TOD. Pointers can be nullptr if not required. */
+  void getVerticalPathDeviationTexts(QString *descentDeviation, QString *verticalAngle, bool *verticalRequired,
+                                     QString *verticalAngleNext) const;
+
+  /* Procedure leg is not valid if en-route leg */
+  const proc::MapProcedureLeg& getProcedureLegAt(int i) const
+  {
+    return value(i).getProcedureLeg();
+  }
+
   /* Assign index and pointer to flight plan for all objects and also update all procedure and alternate offsets */
   void updateIndicesAndOffsets();
 
@@ -658,7 +674,7 @@ public:
   /* Get display idents (ICAO, IATA, FAA or local) of all alternates */
   QStringList getAlternateDisplayIdents() const;
 
-  QVector<map::MapAirport> getAlternateAirports() const;
+  const QVector<map::MapAirport> getAlternateAirports() const;
 
   /* Get a bit array which indicates high/low airways - needed for some export formats.
    *  True indicates high airway used towards waypoint at the same index. */
@@ -675,7 +691,7 @@ public:
   void reloadProcedures(proc::MapProcedureTypes procs);
 
   /* Copies departure and destination names and positions from Route to Flightplan */
-  void updateDepartureAndDestination();
+  void updateDepartureAndDestination(bool clearInvalidStart);
 
   /* Get file name pattern based on route values */
   QString buildDefaultFilename(const QString& suffix) const;
@@ -687,6 +703,30 @@ public:
   /* Get all missing (i.e. not loaded) procedures where property values are present
    * but procedure structs are not loaded/resolved */
   proc::MapProcedureTypes getMissingProcedures();
+
+  /* Check if selected rows affect procedures. Used to disable move and other actions */
+  void selectionFlagsAlternate(const QList<int>& rows, bool& containsAlternate, bool& moveDownTouchesAlt, bool& moveUpTouchesAlt,
+                               bool& moveDownLeavesAlt, bool& moveUpLeavesAlt) const;
+
+  /* Check if selected rows affect alternate airports. Used to disable move and other actions. */
+  void selectionFlagsProcedures(const QList<int>& rows, bool& containsProc, bool& moveDownTouchesProc, bool& moveUpTouchesProc) const;
+
+  /* Override current positon and course for aircraft */
+  void setActivePos(const atools::geo::Pos& pos, float course);
+
+  /* Get index for ref or -1 if not found. Procedures are stored with flag PROCEDURE in the index. */
+  int getLegIndexForRef(const map::MapRef& ref) const;
+
+  int getLegIndexForIdAndType(int id, map::MapTypes type) const
+  {
+    return getLegIndexForRef(map::MapRef(id, type));
+  }
+
+  /* Fill route index for all airports in the result */
+  void updateAirportRouteIndex(map::MapResult& result) const;
+
+  /* Clear route index for all flight plan related objects in result */
+  void clearAirportRouteIndex(map::MapResult& result) const;
 
 private:
   /* Get a list of approach ILS (not localizer) and the used runway end. Only for approaches. */
@@ -783,6 +823,9 @@ private:
   map::MapRunwayEnd destRunwayEnd;
 
   RouteAltitude *altitude = nullptr;
+
+  /* Ref to flight plan leg  index map */
+  QHash<map::MapRef, int> objectIndex;
 };
 
 QDebug operator<<(QDebug out, const Route& route);

@@ -327,5 +327,18 @@
         <file>resources/icons/airportmil.svg</file>
         <file>resources/icons/mapgridconfig.svg</file>
         <file>resources/icons/littlenavmapdoc.svg</file>
+        <file>resources/icons/directto.svg</file>
+        <file>resources/icons/alternate.svg</file>
+        <file>resources/icons/routeselect.svg</file>
+        <file>resources/icons/gradientblackwhite.svg</file>
+        <file>resources/icons/gradientcolors.svg</file>
+        <file>resources/icons/icongradientcolors.svg</file>
+        <file>resources/icons/icongradientblackwhite.svg</file>
+        <file>resources/icons/mapclick.svg</file>
+        <file>resources/icons/bulb.svg</file>
+        <file>resources/icons/gradientcolors2.svg</file>
+        <file>resources/icons/icongradientcolors2.svg</file>
+        <file>resources/config/little_navmap_mapstyle.ini</file>
+        <file>resources/icons/approachconvert.svg</file>
     </qresource>
 </RCC>

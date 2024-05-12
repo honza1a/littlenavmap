@@ -118,7 +118,7 @@ public:
 
   /* Get ILS from sim database based on airport ident and runway name.
    * Runway name can be zero prefixed or prefixed with "RW". */
-  QVector<map::MapIls> getIlsByAirportAndRunway(const QString& airportIdent, const QString& runway) const;
+  const QVector<map::MapIls> getIlsByAirportAndRunway(const QString& airportIdent, const QString& runway) const;
 
   /* Get ILS from sim database based on airport ident and ILS ident. Uses exact match. */
   QVector<map::MapIls> getIlsByAirportAndIdent(const QString& airportIdent, const QString& ilsIdent) const;
@@ -175,7 +175,7 @@ public:
    * All sorted by distance to pos with a maximum distance distanceNm
    * Uses distance * 4 and searches again if nothing was found.*/
   map::MapResultIndex *getNearestNavaids(const atools::geo::Pos& pos, float distanceNm,
-                                         map::MapTypes type, int maxIls, float maxIlsDist);
+                                         map::MapTypes type, int maxIls, float maxIlsDistNm);
 
   /*
    * Fetch airports for a map coordinate rectangle.
@@ -245,7 +245,8 @@ public:
   /* Create and prepare all queries */
   void deInitQueries();
 
-  /* Check in navdatabase (Navigraph or other) if airport has procedures */
+  /* Check in navdatabase (Navigraph or other) if airport has procedures.
+   * Slow but does a fuzzy search to find airport in navdata */
   bool hasProcedures(const map::MapAirport& airport) const;
   bool hasArrivalProcedures(const map::MapAirport& airport) const;
   bool hasDepartureProcedures(const map::MapAirport& airport) const;

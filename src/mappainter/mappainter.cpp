@@ -138,8 +138,7 @@ textflags::TextFlags PaintContext::airportTextFlagsRoute(bool drawAsRoute, bool 
 
 // =================================================
 MapPainter::MapPainter(MapPaintWidget *parentMapWidget, MapScale *mapScale, PaintContext *paintContext)
-  : CoordinateConverter(parentMapWidget->viewport()), context(paintContext), mapPaintWidget(parentMapWidget),
-  scale(mapScale)
+  : CoordinateConverter(parentMapWidget->viewport()), context(paintContext), mapPaintWidget(parentMapWidget), scale(mapScale)
 {
   airportQuery = NavApp::getAirportQuerySim();
   symbolPainter = new SymbolPainter();
@@ -231,7 +230,7 @@ void MapPainter::paintArc(GeoPainter *painter, const Pos& centerPos, float radiu
     if(lastVisible && !nowVisible)
     {
       // Not visible anymore draw previous line segment
-      drawLineString(painter, ellipse);
+      drawPolyline(painter, ellipse);
       ellipse.clear();
     }
 
@@ -249,7 +248,7 @@ void MapPainter::paintArc(GeoPainter *painter, const Pos& centerPos, float radiu
   if(ringVisible && !ellipse.isEmpty())
   {
     ellipse.append(centerPos.endpoint(radiusMeter, angleDegEnd));
-    drawLineString(painter, ellipse);
+    drawPolyline(painter, ellipse);
   }
 }
 
@@ -350,7 +349,7 @@ void MapPainter::paintCircleLargeInternal(GeoPainter *painter, const Pos& center
     if(lastVisible && !nowVisible)
     {
       // Not visible anymore draw previous line segment
-      drawLineString(painter, ellipse);
+      drawPolyline(painter, ellipse);
       ellipse.clear();
     }
 
@@ -386,7 +385,7 @@ void MapPainter::paintCircleLargeInternal(GeoPainter *painter, const Pos& center
     {
       // Last one always needs closing the circle
       ellipse.append(startPoint);
-      drawLineString(painter, ellipse);
+      drawPolyline(painter, ellipse);
     }
 
     if(textPos != nullptr)
@@ -412,9 +411,10 @@ void MapPainter::drawLineStraight(Marble::GeoPainter *painter, const atools::geo
 
 void MapPainter::drawLine(QPainter *painter, const QLineF& line)
 {
+  static const QMarginsF MARGINS(1., 1., 1., 1.);
   QRectF rect(line.p1(), line.p2());
   // Add margins to avoid null width and height which will not intersect with viewport
-  rect = rect.normalized().marginsAdded(QMarginsF(1., 1., 1., 1.));
+  rect = rect.normalized().marginsAdded(MARGINS);
 
   if(atools::geo::lineValid(line) && QRectF(painter->viewport()).intersects(rect))
   {
@@ -452,174 +452,101 @@ void MapPainter::drawCross(Marble::GeoPainter *painter, int x, int y, int size)
   painter->drawLine(x - size, y, x + size, y);
 }
 
+void MapPainter::drawPolyline(Marble::GeoPainter *painter, const atools::geo::LineString& linestring)
+{
+  QVector<QPolygonF *> polygons = createPolylines(linestring, context->screenRect);
+  drawPolylines(painter, polygons);
+  releasePolylines(polygons);
+}
+
+void MapPainter::drawPolylines(Marble::GeoPainter *painter, const QVector<QPolygonF *>& polygons)
+{
+  for(const QPolygonF *polygon : polygons)
+    drawPolyline(painter, *polygon);
+}
+
+void MapPainter::drawPolyline(Marble::GeoPainter *painter, const QPolygonF& polygon)
+{
+  painter->drawPolyline(polygon);
+
+#ifdef DEBUG_INFORMATION_PAINT_POLYGON
+  {
+    atools::util::PainterContextSaver save(painter);
+    painter->setPen(Qt::black);
+    for(int i = 0; i < polygon.size(); i++)
+    {
+      QPointF pt = polygon.at(i);
+      painter->drawEllipse(pt, 3, 3);
+
+      if((i % 4) == 0)
+        pt.rx() += 10;
+      else if((i % 4) == 1)
+        pt.rx() -= 10;
+      else if((i % 4) == 2)
+        pt.ry() += 10;
+      else if((i % 4) == 3)
+        pt.ry() -= 10;
+      painter->drawText(pt, QString::number(i));
+    }
+  }
+#endif
+}
+
 void MapPainter::drawPolygon(Marble::GeoPainter *painter, const atools::geo::LineString& linestring)
 {
-  Marble::GeoDataLinearRing linearRing;
-  linearRing.setTessellate(true);
-
-  for(const Pos& pos : linestring)
-    linearRing.append(Marble::GeoDataCoordinates(pos.getLonX(), pos.getLatY(), 0, DEG));
-
-  painter->drawPolygon(linearRing);
+  QVector<QPolygonF *> polygons = createPolygons(linestring, context->screenRect);
+  drawPolygons(painter, polygons);
+  releasePolygons(polygons);
 }
 
-void MapPainter::drawLineString(Marble::GeoPainter *painter, const atools::geo::LineString& linestring)
+void MapPainter::drawPolygons(Marble::GeoPainter *painter, const QVector<QPolygonF *>& polygons)
 {
-  if(linestring.size() < 2)
-    return;
+  for(const QPolygonF *polygon : polygons)
+    drawPolygon(painter, *polygon);
+}
 
-  const float LATY_CORRECTION = 0.00001f;
-  LineString splitLines = linestring.splitAtAntiMeridian();
-  splitLines.removeDuplicates();
+void MapPainter::drawPolygon(Marble::GeoPainter *painter, const QPolygonF& polygon)
+{
+  painter->drawPolygon(polygon, Qt::OddEvenFill);
 
-  // Avoid the straight line Marble draws wrongly for equal latitudes - needed to force GC path
-  for(int i = 0; i < splitLines.size() - 1; i++)
+#ifdef DEBUG_INFORMATION_PAINT_POLYGON
   {
-    Pos& p1(splitLines[i]);
-    Pos& p2(splitLines[i + 1]);
-
-    if(atools::almostEqual(p1.getLatY(), p2.getLatY()) && std::abs(p1.getLonX() - p2.getLonX()) > 0.5f)
+    atools::util::PainterContextSaver save(painter);
+    painter->setPen(Qt::black);
+    for(int i = 0; i < polygon.size(); i++)
     {
-      // Move latitude a bit up and down if equal and more than half a degree apart
-      p1.setLatY(p1.getLatY() + LATY_CORRECTION);
-      p2.setLatY(p2.getLatY() - LATY_CORRECTION);
+      QPointF pt = polygon.at(i);
+      painter->drawEllipse(pt, 3, 3);
+
+      if((i % 4) == 0)
+        pt.rx() += 10;
+      else if((i % 4) == 1)
+        pt.rx() -= 10;
+      else if((i % 4) == 2)
+        pt.ry() += 10;
+      else if((i % 4) == 3)
+        pt.ry() -= 10;
+      painter->drawText(pt, QString::number(i));
     }
   }
-
-  // Build Marble geometry object
-  if(!splitLines.isEmpty())
-  {
-    GeoDataLineString geoLineStr;
-    geoLineStr.setTessellate(true);
-
-    for(int i = 0; i < splitLines.size() - 1; i++)
-    {
-      Line line(splitLines.at(i), splitLines.at(i + 1));
-
-      // Split long lines to work around the buggy visibility check in Marble resulting in disappearing line segments
-      // Do a quick check using Manhattan distance in degree
-      LineString ls;
-      if(line.lengthSimple() > 30.f)
-        line.interpolatePoints(line.lengthMeter(), 20, ls);
-      else if(line.lengthSimple() > 5.f)
-        line.interpolatePoints(line.lengthMeter(), 5, ls);
-      else
-        ls.append(line.getPos1());
-
-      // Append split points or single point
-      for(const Pos& pos : ls)
-        geoLineStr << GeoDataCoordinates(pos.getLonX(), pos.getLatY(), 0, DEG);
-    }
-
-    // Add last point
-    geoLineStr << GeoDataCoordinates(splitLines.constLast().getLonX(), splitLines.constLast().getLatY(), 0, DEG);
-
-#ifdef DEBUG_INFORMATION_LINERENDER
-    qDebug() << Q_FUNC_INFO << "=========================================";
-    for(const GeoDataCoordinates& c : geoLineStr)
-      qDebug() << Q_FUNC_INFO << "long" << c.longitude(GeoDataCoordinates::Degree) << "lat" << c.latitude(GeoDataCoordinates::Degree);
 #endif
-
-    QVector<GeoDataLineString *> geoLineStrCorrected = geoLineStr.toDateLineCorrected();
-    for(const GeoDataLineString *geoLine: geoLineStrCorrected)
-      painter->drawPolyline(*geoLine);
-    qDeleteAll(geoLineStrCorrected);
-  }
 }
 
-void MapPainter::drawLineStringRadial(Marble::GeoPainter *painter, const atools::geo::LineString& linestring)
+void MapPainter::drawLine(Marble::GeoPainter *painter, const atools::geo::Line& line, bool forceDraw)
 {
-  if(linestring.size() < 2)
-    return;
-
-  const float LATY_CORRECTION = 0.00001f;
-  LineString splitLines = linestring.splitAtAntiMeridian();
-  splitLines.removeDuplicates();
-
-  // Avoid the straight line Marble draws wrongly for equal latitudes - needed to force GC path
-  for(int i = 0; i < splitLines.size() - 1; i++)
+  QVector<QPolygonF *> polygons = createPolylines(LineString(line.getPos1(), line.getPos2()), context->screenRect);
+  if(!polygons.isEmpty())
   {
-    Pos& p1(splitLines[i]);
-    Pos& p2(splitLines[i + 1]);
-
-    if(atools::almostEqual(p1.getLatY(), p2.getLatY()))
-    {
-      // Move latitude a bit up and down if equal
-      p1.setLatY(p1.getLatY() + LATY_CORRECTION);
-      p2.setLatY(p2.getLatY() - LATY_CORRECTION);
-    }
+    drawPolylines(painter, polygons);
+    releasePolylines(polygons);
   }
-
-  // Build Marble geometry object
-  if(!splitLines.isEmpty())
+  else if(forceDraw)
   {
-    GeoDataLineString geoLineStr;
-    geoLineStr.setTessellate(true);
-
-    for(int i = 0; i < splitLines.size() - 1; i++)
-    {
-      Line line(splitLines.at(i), splitLines.at(i + 1));
-
-      // Split long lines to work around the buggy visibility check in Marble resulting in disappearing line segments
-      // Do a quick check using Manhattan distance in degree
-      LineString ls;
-      if(line.lengthSimple() > 30.f)
-        line.interpolatePointsRhumb(line.lengthMeter(), 20, ls);
-      else if(line.lengthSimple() > 5.f)
-        line.interpolatePointsRhumb(line.lengthMeter(), 5, ls);
-      else
-        ls.append(line.getPos1());
-
-      // Append split points or single point
-      for(const Pos& pos : ls)
-        geoLineStr << GeoDataCoordinates(pos.getLonX(), pos.getLatY(), 0, DEG);
-    }
-
-    // Add last point
-    geoLineStr << GeoDataCoordinates(splitLines.constLast().getLonX(), splitLines.constLast().getLatY(), 0, DEG);
-
-    QVector<GeoDataLineString *> geoLineStrCorrected = geoLineStr.toDateLineCorrected();
-    for(const GeoDataLineString *geoLine: geoLineStrCorrected)
-      painter->drawPolyline(*geoLine);
-    qDeleteAll(geoLineStrCorrected);
-  }
-}
-
-void MapPainter::drawLine(Marble::GeoPainter *painter, const atools::geo::Line& line, bool noRecurse)
-{
-  if(line.isValid() && !line.isPoint())
-  {
-    if(line.crossesAntiMeridian())
-    {
-      // Avoid endless recursion because hitting anti-meridian again because of inaccuracies
-      if(!noRecurse)
-      {
-        for(const Line& split : line.splitAtAntiMeridian())
-          // Call self again
-          drawLine(painter, split, true /* noRecurse */);
-      }
-    }
-    else
-      drawLineString(painter, LineString(line.getPos1(), line.getPos2()));
-  }
-}
-
-void MapPainter::drawLineRadial(Marble::GeoPainter *painter, const atools::geo::Line& line, bool noRecurse)
-{
-  if(line.isValid() && !line.isPoint())
-  {
-    if(line.crossesAntiMeridian())
-    {
-      // Avoid endless recursion because hitting anti-meridian again because of inaccuracies
-      if(!noRecurse)
-      {
-        for(const Line& split : line.splitAtAntiMeridian())
-          // Call self again
-          drawLineRadial(painter, split, true /* noRecurse */);
-      }
-    }
-    else
-      drawLineStringRadial(painter, LineString(line.getPos1(), line.getPos2()));
+    // Avoid disappearing line segments due to Marble
+    QPointF pt1 = wToSF(line.getPos1());
+    QPointF pt2 = wToSF(line.getPos2());
+    if(!pt1.isNull() && !pt2.isNull())
+      drawLine(context->painter, pt1, pt2);
   }
 }
 
@@ -865,6 +792,44 @@ void MapPainter::paintProcedureTurnWithText(QPainter *painter, float x, float y,
   painter->restore();
 }
 
+void MapPainter::paintAircraftTrail(const QVector<LineString>& lineStrings, float minAlt, float maxAlt)
+{
+  if(!lineStrings.isEmpty())
+  {
+    if(OptionData::instance().getFlags().testFlag(opts::MAP_TRAIL_GRADIENT))
+    {
+      // Draw black or white background as one single line ==========================
+      context->painter->setPen(mapcolors::aircraftTrailPenOuter(context->szF(context->thicknessTrail, 2.f)));
+      for(const LineString& lineString : lineStrings)
+        drawPolyline(context->painter, lineString);
+
+      // Split linestring and draw single line segments using different colors for gradient ==========================
+      for(const LineString& lineString : lineStrings)
+      {
+        for(int i = 0; i < lineString.size() - 1; i++)
+        {
+          Line line(lineString.at(i), lineString.at(i + 1));
+
+          // Average altitude between start and end point
+          float alt = static_cast<float>((line.getPos1().getAltitude() + line.getPos2().getAltitude()) / 2.);
+
+          context->painter->setPen(mapcolors::aircraftTrailPen(context->szF(context->thicknessTrail, 2.f), minAlt, maxAlt, alt));
+
+          // Draw line and force drawing also for very short segments
+          drawLine(context->painter, line, true /* forceDraw */);
+        }
+      }
+    }
+    else
+    {
+      // Styled pen - no gradient ==================================
+      context->painter->setPen(mapcolors::aircraftTrailPen(context->szF(context->thicknessTrail, 2.f)));
+      for(const LineString& lineString : lineStrings)
+        drawPolyline(context->painter, lineString);
+    }
+  }
+}
+
 QPolygonF MapPainter::buildArrow(float size, bool downwards)
 {
   if(downwards)
@@ -956,7 +921,7 @@ void MapPainter::paintMsaMarks(const QList<map::MapAirportMsa>& airportMsa, bool
   atools::util::PainterContextSaver saver(context->painter);
   GeoPainter *painter = context->painter;
 
-  for(const map::MapAirportMsa& msa:airportMsa)
+  for(const map::MapAirportMsa& msa : airportMsa)
   {
     float x, y;
     bool msaVisible = wToS(msa.position, x, y, scale->getScreeenSizeForRect(msa.bounding));
@@ -1105,9 +1070,8 @@ void MapPainter::paintHoldingMarks(const QList<map::MapHolding>& holdings, bool 
           if(detail2)
           {
             // Text for inbound leg =======================================
-            inboundText.append(formatter::courseTextFromTrue(holding.courseTrue, holding.magvar,
-                                                             false /* magBold */, false /* trueSmall */,
-                                                             true /* narrow */));
+            inboundText.append(formatter::courseTextFromTrue(holding.courseTrue, holding.magvar, false /* magBold */, false /* magBig */,
+                                                             false /* trueSmall */, true /* narrow */));
 
             if(holding.time > 0.f)
               inboundText.append(tr("%1min").arg(QString::number(holding.time, 'g', 2)));
@@ -1122,7 +1086,7 @@ void MapPainter::paintHoldingMarks(const QList<map::MapHolding>& holdings, bool 
           {
             // Text for outbound leg =======================================
             outboundText.append(formatter::courseTextFromTrue(opposedCourseDeg(holding.courseTrue), holding.magvar,
-                                                              false /* magBold */, false /* trueSmall */,
+                                                              false /* magBold */, false /* magBig */, false /* trueSmall */,
                                                               true /* narrow */));
 
             if(user)

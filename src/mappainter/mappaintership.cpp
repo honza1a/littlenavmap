@@ -18,10 +18,11 @@
 #include "mappainter/mappaintership.h"
 
 #include "app/navapp.h"
-#include "mapgui/mapwidget.h"
-#include "mapgui/maplayer.h"
-#include "util/paintercontextsaver.h"
+#include "fs/sc/simconnectaircraft.h"
 #include "fs/sc/simconnectuseraircraft.h"
+#include "mapgui/maplayer.h"
+#include "mapgui/mappaintwidget.h"
+#include "util/paintercontextsaver.h"
 
 #include <marble/GeoPainter.h>
 
@@ -39,6 +40,8 @@ MapPainterShip::~MapPainterShip()
 
 void MapPainterShip::render()
 {
+  const static QMargins MARGINS(100, 100, 100, 100);
+
   if(!context->objectTypes.testFlag(map::AIRCRAFT_AI_SHIP))
     // If actions are unchecked return
     return;
@@ -51,13 +54,12 @@ void MapPainterShip::render()
       atools::util::PainterContextSaver saver(context->painter);
       bool hidden = false;
       float x, y;
-      QMargins margins(100, 100, 100, 100);
 
       for(const SimConnectAircraft& ac : mapPaintWidget->getAiAircraft())
       {
         if(ac.isAnyBoat() && (ac.getModelRadiusCorrected() * 2 > layer::LARGE_SHIP_SIZE || context->mapLayer->isAiShipSmall()))
         {
-          if(wToSBuf(ac.getPosition(), x, y, margins, &hidden))
+          if(wToSBuf(ac.getPosition(), x, y, MARGINS, &hidden))
           {
             if(!hidden)
               paintAiVehicle(ac, x, y, false /* forceLabelNearby */);

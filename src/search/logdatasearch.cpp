@@ -40,15 +40,25 @@
 LogdataSearch::LogdataSearch(QMainWindow *parent, QTableView *tableView, si::TabSearchId tabWidgetIndex)
   : SearchBaseTable(parent, tableView, new ColumnList("logbook", "logbook_id"), tabWidgetIndex)
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
+  /* *INDENT-OFF* */
+  ui->pushButtonLogdataHelp->setToolTip(
+    "<p>All set search conditions have to match.</p>"
+    "<p>Search tips for text fields: </p>"
+    "<ul>"
+      "<li>Default is search for logbook entries that contain the entered text.</li>"
+      "<li>Use &quot;*&quot; as a placeholder for any text. </li>"
+      "<li>Use double quotes like &quot;EKSN&quot; to force exact search.</li>"
+      "<li>Prefix with &quot;-&quot; as first character to negate search.</li>"
+    "</ul>");
+  /* *INDENT-ON* */
 
   // All widgets that will have their state and visibility saved and restored
   logdataSearchWidgets =
   {
     ui->horizontalLayoutLogdata,
+    ui->verticalLayoutLogdataMore,
     ui->horizontalLayoutLogdataDist,
-    ui->horizontalLayoutAircraftSim,
-    ui->horizontalLayoutLogdataDepartDest,
+    ui->actionSearchLogdataFollowSelection,
     ui->lineLogdataMore,
     ui->lineLogdataMoreDist,
     ui->actionLogdataSearchShowMoreOptions,
@@ -66,7 +76,7 @@ LogdataSearch::LogdataSearch(QMainWindow *parent, QTableView *tableView, si::Tab
   // Columns that are hidden are also needed to fill MapAirport object and for the icon delegate
   columns->
   append(Column("logbook_id").hidden()).
-  append(Column("departure_time", tr("Departure\nReal Time")).defaultSort(true).defaultSortOrder(Qt::DescendingOrder)).
+  append(Column("departure_time", tr("Departure\nReal Local Time")).defaultSort(true).defaultSortOrder(Qt::DescendingOrder)).
   append(Column("departure_time_sim", tr("Departure\nSim. Time UTC"))).
   append(Column("departure_ident", ui->lineEditLogdataDeparture, tr("Departure\nIdent")).filterByBuilder()).
   append(Column("departure_name", tr("Departure"))).
@@ -78,21 +88,23 @@ LogdataSearch::LogdataSearch(QMainWindow *parent, QTableView *tableView, si::Tab
   append(Column("travel_time_sim", tr("Travel\nSim. Time")).
          sqlFunc("strftime('%s', destination_time_sim) - strftime('%s', departure_time_sim)")).
 
-  append(Column("destination_time", tr("Destination\nReal Time"))).
+  append(Column("destination_time", tr("Destination\nReal Local Time"))).
   append(Column("destination_time_sim", tr("Destination\nSim. Time UTC"))).
   append(Column("destination_ident", ui->lineEditLogdataDestination, tr("Destination\nIdent")).filterByBuilder()).
   append(Column("destination_name", tr("Destination"))).
   append(Column("destination_runway").hidden()).
-  append(Column("aircraft_name", ui->lineEditLogdataAircraftModel, tr("Aircraft\nModel")).filter()).
-  append(Column("aircraft_registration", ui->lineEditLogdataAircraftRegistration, tr("Aircraft\nRegistration")).filter()).
+  append(Column("aircraft_name", ui->lineEditLogdataAircraftModel,
+                tr("Aircraft\nModel")).filter(true, ui->actionLogdataSearchShowMoreOptions)).
+  append(Column("aircraft_registration", ui->lineEditLogdataAircraftRegistration,
+                tr("Aircraft\nRegistration")).filter(true, ui->actionLogdataSearchShowMoreOptions)).
   append(Column("aircraft_type", ui->lineEditLogdataAircraftType, tr("Aircraft\nType")).filter()).
-  append(Column("simulator", ui->lineEditLogdataSimulator, tr("Simulator")).filter()).
+  append(Column("simulator", ui->lineEditLogdataSimulator, tr("Simulator")).filter(true, ui->actionLogdataSearchShowMoreOptions)).
   append(Column("performance_file").hidden()).
   append(Column("flightplan_file").hidden()).
   append(Column("distance", tr("Distance\nPlan %dist%"))).
   append(Column("distance_flown", tr("Distance\nFlown %dist%"))).
   append(Column("route_string").hidden()).
-  append(Column("description", ui->lineEditLogdataDescription, tr("Remarks")).filter()).
+  append(Column("description", ui->lineEditLogdataDescription, tr("Remarks")).filter(true, ui->actionLogdataSearchShowMoreOptions)).
   append(Column("departure_lonx").hidden()).
   append(Column("departure_laty").hidden()).
   append(Column("departure_alt").hidden()).
@@ -101,9 +113,9 @@ LogdataSearch::LogdataSearch(QMainWindow *parent, QTableView *tableView, si::Tab
   append(Column("destination_alt").hidden());
 
   // Assign the callback which builds the where clause for the airport search ======================
-  using namespace std::placeholders;
-  columns->setQueryBuilder(QueryBuilder(std::bind(&LogdataSearch::airportQueryBuilderFunc, this, _1),
-                                        ui->lineEditLogdataAirport, {"departure_ident", "destination_ident"}));
+  columns->setQueryBuilder(QueryBuilder(std::bind(&SearchBaseTable::queryBuilderFunc, this, std::placeholders::_1),
+                                        {QueryWidget(ui->lineEditLogdataAirport, {"departure_ident", "destination_ident"},
+                                                     false /* allowOverride */, false /* allowExclude */)}));
 
   SearchBaseTable::initViewAndController(NavApp::getDatabaseLogbook());
 
@@ -115,49 +127,9 @@ LogdataSearch::~LogdataSearch()
 {
 }
 
-QueryBuilderResult LogdataSearch::airportQueryBuilderFunc(QWidget *widget)
-{
-  if(widget != nullptr)
-  {
-    // Widget list is always one line edit
-    QLineEdit *lineEdit = dynamic_cast<QLineEdit *>(widget);
-    if(lineEdit != nullptr)
-    {
-      QString text = lineEdit->text().simplified();
-
-      // Adjust the query string to SQL
-      // Replace "*" with "%" for SQL
-      if(text.contains("*"))
-        text = text.replace("*", "%");
-      else if(!text.isEmpty())
-        text = text + "%";
-
-      // Exclude if prefixed with "-"
-      bool exclude = false;
-      if(text.startsWith('-'))
-      {
-        text = text.mid(1);
-        exclude = true;
-      }
-
-      if(!text.isEmpty())
-      {
-        // Cannot use "arg" to build string since percent confuses QString
-        QString query = "(departure_ident " + (exclude ? "not " : QString()) + " like '" + text + "'" +
-                        " or destination_ident " + (exclude ? "not " : QString()) + " like '" + text + "')";
-
-        return QueryBuilderResult(query, false);
-      }
-    }
-  }
-  return QueryBuilderResult();
-}
-
 void LogdataSearch::connectSearchSlots()
 {
   SearchBaseTable::connectSearchSlots();
-
-  Ui::MainWindow *ui = NavApp::getMainUi();
 
   // Small push buttons on top
   connect(ui->pushButtonLogdataClearSelection, &QPushButton::clicked, this, &SearchBaseTable::nothingSelectedTriggered);
@@ -180,16 +152,12 @@ void LogdataSearch::connectSearchSlots()
   ui->toolButtonLogdata->addActions({ui->actionLogdataSearchShowMoreOptions, ui->actionLogdataSearchShowDistOptions});
 
   // Drop down menu actions
-  connect(ui->actionLogdataSearchShowMoreOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->verticalLayoutLogdataMore}, state, {ui->lineLogdataMore});
-    updateButtonMenu();
+  connect(ui->actionLogdataSearchShowMoreOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->verticalLayoutLogdataMore, ui->lineLogdataMore, state, false /* distanceSearch */);
   });
 
-  connect(ui->actionLogdataSearchShowDistOptions, &QAction::toggled, this, [ = ](bool state)
-  {
-    atools::gui::util::showHideLayoutElements({ui->horizontalLayoutLogdataDist}, state, {ui->lineLogdataMoreDist});
-    updateButtonMenu();
+  connect(ui->actionLogdataSearchShowDistOptions, &QAction::toggled, this, [this](bool state) {
+    buttonMenuTriggered(ui->horizontalLayoutLogdataDist, ui->lineLogdataMoreDist, state, false /* distanceSearch */);
   });
 
   ui->actionLogdataEdit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -231,27 +199,13 @@ void LogdataSearch::saveState()
 {
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET);
   widgetState.save(logdataSearchWidgets);
-
-  Ui::MainWindow *ui = NavApp::getMainUi();
-  widgetState.save({ui->horizontalLayoutLogdata, ui->verticalLayoutLogdataMore, ui->horizontalLayoutLogdataDist,
-                    ui->actionSearchLogdataFollowSelection});
 }
 
 void LogdataSearch::restoreState()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
   atools::gui::WidgetState widgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET);
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH)
-  {
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_SEARCH && !NavApp::isSafeMode())
     widgetState.restore(logdataSearchWidgets);
-
-    restoreViewState(false);
-
-    // Need to block signals here to avoid unwanted behavior
-    widgetState.setBlockSignals(true);
-    widgetState.restore({ui->horizontalLayoutLogdata, ui->verticalLayoutLogdataMore, ui->horizontalLayoutLogdataDist,
-                         ui->actionSearchLogdataFollowSelection});
-  }
   else
   {
     QList<QObject *> objList;
@@ -260,16 +214,18 @@ void LogdataSearch::restoreState()
 
     atools::gui::WidgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET).restore(ui->tableViewLogdata);
   }
+
+  finishRestore();
 }
 
 void LogdataSearch::saveViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET).save(NavApp::getMainUi()->tableViewLogdata);
+  atools::gui::WidgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET).save(ui->tableViewLogdata);
 }
 
 void LogdataSearch::restoreViewState(bool)
 {
-  atools::gui::WidgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET).restore(NavApp::getMainUi()->tableViewLogdata);
+  atools::gui::WidgetState(lnm::SEARCHTAB_LOGDATA_VIEW_WIDGET).restore(ui->tableViewLogdata);
 }
 
 /* Callback for the controller. Will be called for each table cell and should return a formatted value */
@@ -409,18 +365,15 @@ void LogdataSearch::setCallbacks()
  * action depending on other action states */
 void LogdataSearch::updateButtonMenu()
 {
-  Ui::MainWindow *ui = NavApp::getMainUi();
-
-  atools::gui::util::changeStarIndication(ui->actionLogdataSearchShowMoreOptions,
-                                          atools::gui::util::anyWidgetChanged({ui->verticalLayoutLogdataMore}));
-  atools::gui::util::changeStarIndication(ui->actionLogdataSearchShowDistOptions,
-                                          atools::gui::util::anyWidgetChanged({ui->horizontalLayoutLogdataDist}));
+  atools::gui::util::changeIndication(ui->actionLogdataSearchShowMoreOptions,
+                                      atools::gui::util::anyWidgetChanged({ui->verticalLayoutLogdataMore}));
+  atools::gui::util::changeIndication(ui->actionLogdataSearchShowDistOptions,
+                                      atools::gui::util::anyWidgetChanged({ui->horizontalLayoutLogdataDist}));
 }
 
 void LogdataSearch::updatePushButtons()
 {
   QItemSelectionModel *sm = view->selectionModel();
-  Ui::MainWindow *ui = NavApp::getMainUi();
   ui->pushButtonLogdataClearSelection->setEnabled(sm != nullptr && sm->hasSelection());
   ui->pushButtonLogdataDel->setEnabled(sm != nullptr && sm->hasSelection());
   ui->pushButtonLogdataEdit->setEnabled(sm != nullptr && sm->hasSelection());
@@ -432,5 +385,5 @@ void LogdataSearch::updatePushButtons()
 
 QAction *LogdataSearch::followModeAction()
 {
-  return NavApp::getMainUi()->actionSearchLogdataFollowSelection;
+  return ui->actionSearchLogdataFollowSelection;
 }

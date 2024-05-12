@@ -44,6 +44,7 @@ class QTableWidget;
 
 namespace atools {
 namespace gui {
+class ListWidgetIndex;
 class GridDelegate;
 class ItemViewZoomHandler;
 }
@@ -94,15 +95,20 @@ public:
   void setCacheMapThemeDir(const QString& mapThemesDir);
   void setCacheOfflineDataPath(const QString& globeDir);
 
+  void fontChanged(const QFont& font);
+
 signals:
   /* Emitted whenever OK or Apply is pressed on the dialog window */
   void optionsChanged();
+
+  /* QGuiApplication::fontChanged is emitted for font changes */
 
 private:
   /* Catch close button too since dialog is kept alive */
   virtual void reject() override;
 
   void updateWidgetStates();
+  void updateTrailStates();
 
   void buttonBoxClicked(QAbstractButton *button);
   void widgetsToOptionData();
@@ -255,7 +261,7 @@ private:
   void resetGuiFontClicked();
   void selectMapFontClicked();
   void resetMapFontClicked();
-  void buildFontDialog();
+  void buildFontDialog(const QFont& initialFont);
   void toolbarSizeClicked();
 
   void flightplanPatterShortClicked();
@@ -265,11 +271,15 @@ private:
   void colorButtonClicked(QColor& color);
   void updateGuiWidgets();
 
+  void hintLinkActivated(const QString& link);
+
   /* Converts range ring string to vector of floats. Falls back to 100 units single ring if nothing is valid.
    * Uses current locale to convert numbers and check min and max. */
   QVector<float> rangeStringToFloat(const QString& rangeStr) const;
   QString rangeFloatToString(const QVector<float>& ranges) const;
   void mapThemeKeyEdited(QTableWidgetItem *item);
+
+  void searchTextEdited(const QString& text);
 
   QString guiLanguage, guiFont, mapFont;
   QColor flightplanColor, flightplanOutlineColor, flightplanProcedureColor, flightplanActiveColor, trailColor, measurementColor,
@@ -284,6 +294,7 @@ private:
   QHash<optsac::DisplayOptionsAiAircraft, QTreeWidgetItem *> displayOptItemIndexAi;
   QHash<optsd::DisplayOptionsAirport, QTreeWidgetItem *> displayOptItemIndexAirport;
   QHash<optsd::DisplayOptionsNavAid, QTreeWidgetItem *> displayOptItemIndexNavAid;
+  QHash<optsd::DisplayOptionsAirspace, QTreeWidgetItem *> displayOptItemIndexAirspace;
   QHash<optsd::DisplayOptionsRose, QTreeWidgetItem *> displayOptItemIndexRose;
   QHash<optsd::DisplayOptionsMeasurement, QTreeWidgetItem *> displayOptItemIndexMeasurement;
   QHash<optsd::DisplayOptionsRoute, QTreeWidgetItem *> displayOptItemIndexRoute;
@@ -297,6 +308,8 @@ private:
                                    *zoomHandlerDatabaseAddonExclude = nullptr;
 
   atools::gui::GridDelegate *gridDelegate = nullptr;
+
+  atools::gui::ListWidgetIndex *listWidgetIndex = nullptr;
 };
 
 #endif // LITTLENAVMAP_OPTIONSDIALOG_H

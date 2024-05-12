@@ -76,19 +76,6 @@ void MapPainterMark::render()
 {
   atools::util::PainterContextSaver saver(context->painter);
 
-#ifdef DEBUG_INFORMATION
-  {
-    atools::util::PainterContextSaver dbgsaver(context->painter);
-    context->szFont(context->textSizeAirport);
-    symbolPainter->textBox(context->painter, {
-      QString("Layer %1").arg(context->mapLayer->getMaxRange()),
-      QString("Layer route %1").arg(context->mapLayerRoute->getMaxRange()),
-      QString("Airport sym %1").arg(context->mapLayer->getAirportSymbolSize()),
-      QString("Min RW %1").arg(context->mapLayer->getMinRunwayLength())},
-                           mapcolors::routeLogEntryOutlineColor, 1, 1, textatt::ROUTE_BG_COLOR | textatt::VERT_BELOW);
-  }
-#endif
-
   paintMark();
   paintHome();
 
@@ -205,7 +192,8 @@ void MapPainterMark::paintHighlights()
   float alpha = transparent ? (1.f - context->transparencyHighlight) : 1.f;
 
   // Selected logbook entries ------------------------------------------
-  paintLogEntries(highlightResultsSearch.logbookEntries);
+  if(highlightResultsSearch.hasLogEntries())
+    paintLogEntries(highlightResultsSearch.logbookEntries);
 
   // ====================================================================
   // Collect all highlight rings for positions =============
@@ -413,59 +401,74 @@ void MapPainterMark::paintHighlights()
 
 void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
 {
+  const static QMargins MARGINS(120, 10, 10, 10);
+
   GeoPainter *painter = context->painter;
   painter->setBackgroundMode(Qt::TransparentMode);
   painter->setBackground(Qt::black);
   painter->setBrush(Qt::NoBrush);
   context->szFont(context->textSizeFlightplan);
 
+  float minAltitude = std::numeric_limits<float>::max(), maxAltitude = std::numeric_limits<float>::min();
   // Collect visible feature parts ==========================================================================
   atools::fs::userdata::LogdataManager *logdataManager = NavApp::getLogdataManager();
   QVector<const MapLogbookEntry *> visibleLogEntries, allLogEntries;
-  QVector<ageo::LineString> visibleRouteGeometries;
-  QVector<QStringList> visibleRouteTexts;
-  QVector<ageo::LineString> visibleTrackGeometries;
+  ageo::LineString visibleRouteGeometries;
+  QStringList visibleRouteTexts;
+  QVector<ageo::LineString> visibleTrailGeometries;
+  bool showRouteAndTrail = entries.size() == 1;
 
-  for(const MapLogbookEntry& entry : entries)
+  for(const MapLogbookEntry& logEntry : entries)
   {
     // All selected for airport drawing
-    allLogEntries.append(&entry);
+    allLogEntries.append(&logEntry);
 
     // All which have visible geometry
-    if(context->viewportRect.overlaps(entry.bounding()))
-      visibleLogEntries.append(&entry);
+    if(resolves(logEntry.bounding()))
+      visibleLogEntries.append(&logEntry);
 
-    // Show details only if one entry is selected
-    if(entries.size() == 1)
+    // Show details only if one entry is selected - only direct connection for more than one selection
+    if(showRouteAndTrail)
     {
-      const atools::fs::userdata::LogEntryGeometry *geometry = logdataManager->getGeometry(entry.id);
+      // Get cached data
+      const atools::fs::gpx::GpxData *gpxData = logdataManager->getGpxData(logEntry.id);
+
       // Geometry might be null in case of cache overflow
-      if(geometry != nullptr && !geometry->tracks.isEmpty())
+      // Geometry has to be copied since cache in LogDataManager might remove it any time
+      if(gpxData != nullptr)
       {
-        // Geometry has to be copied since cache in LogDataManager might remove it any time
-
-        // Limit number of visible routes
-        if(context->objectDisplayTypes & map::LOGBOOK_ROUTE)
+        // Flight plan =========================================================
+        if(!gpxData->flightplan.isEmpty() && context->objectDisplayTypes.testFlag(map::LOGBOOK_ROUTE) && resolves(gpxData->flightplanRect))
         {
-          if(context->viewportRect.overlaps(geometry->routeRect))
-            visibleRouteGeometries.append(geometry->route);
-          else
-            // Insert null to have it in sync with route texts
-            visibleRouteGeometries.append(ageo::EMPTY_LINESTRING);
-
-          visibleRouteTexts.append(geometry->names);
+          for(const atools::fs::pln::FlightplanEntry& entry : gpxData->flightplan)
+          {
+            visibleRouteGeometries.append(entry.getPosition());
+            visibleRouteTexts.append(entry.getIdent());
+          }
         }
 
+        // Trail =========================================================
         // Limit number of visible tracks
-        if(context->objectDisplayTypes & map::LOGBOOK_TRACK && context->viewportRect.overlaps(geometry->trackRect))
+        if(!gpxData->trails.isEmpty() && context->objectDisplayTypes.testFlag(map::LOGBOOK_TRACK) && resolves(gpxData->trailRect))
         {
-          for(const ageo::LineString& line : geometry->tracks)
+          maxAltitude = std::max(maxAltitude, gpxData->maxTrailAltitude);
+          minAltitude = std::min(minAltitude, gpxData->minTrailAltitude);
+
+          for(const atools::fs::gpx::TrailPoints& points : gpxData->trails)
           {
-            if(context->viewportRect.overlaps(line.boundingRect()))
-              visibleTrackGeometries.append(line);
+            if(!points.isEmpty())
+            {
+              ageo::LineString lineString;
+              for(const atools::fs::gpx::TrailPoint& point : points)
+                lineString.append(point.pos.asPos());
+
+              if(resolves(lineString.boundingRect()))
+                visibleTrailGeometries.append(lineString);
+            }
           }
         }
       }
+      break;
     }
   }
 
@@ -484,42 +487,29 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
     painter->setPen(QPen(routeLogEntryOutlineColor, outerlinewidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
     // Draw outline for all selected entries ===============
-    for(const ageo::LineString& geo: visibleRouteGeometries)
-    {
-      if(geo.isValid())
-        drawLineString(painter, geo);
-    }
+    // Draw one route
+    drawPolyline(painter, visibleRouteGeometries);
 
     // Draw line for all selected entries ===============
     // Use a lighter pen for the flight plan legs ======================================
     QPen routePen(routeLogEntryColor, lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     routePen.setColor(routeLogEntryColor.lighter(130));
     painter->setPen(routePen);
+    drawPolyline(painter, visibleRouteGeometries);
 
-    for(int i = 0; i < visibleRouteGeometries.size(); i++)
+    if(!mapPaintWidget->isDistanceCutOff())
     {
-      const ageo::LineString& geo = visibleRouteGeometries.at(i);
-
-      if(geo.isValid())
+      for(int i = 0; i < visibleRouteGeometries.size(); i++)
       {
-        drawLineString(painter, geo);
-
-        if(!mapPaintWidget->isDistanceCutOff())
+        // Draw waypoint symbols and text for route preview =========
+        const QString& name = visibleRouteTexts.at(i);
+        float x, y;
+        if(wToS(visibleRouteGeometries.at(i), x, y))
         {
-          // Draw waypoint symbols and text for route preview =========
-          const QStringList& names = visibleRouteTexts.at(i);
-          for(int j = 1; j < geo.size() - 1; j++)
-          {
-            float x, y;
-            if(wToS(geo.at(j), x, y))
-            {
-              symbolPainter->drawLogbookPreviewSymbol(context->painter, x, y, symbolSize);
+          symbolPainter->drawLogbookPreviewSymbol(context->painter, x, y, symbolSize);
 
-              if(context->mapLayer->isWaypointRouteName() && names.size() == geo.size())
-                symbolPainter->textBoxF(context->painter, {names.at(j)}, routeLogEntryOutlineColor,
-                                        x + symbolSize / 2 + 2, y, textatt::LOG_BG_COLOR);
-            }
-          }
+          if(context->mapLayer->isWaypointRouteName())
+            symbolPainter->textBoxF(context->painter, {name}, routeLogEntryOutlineColor, x + symbolSize / 2 + 2, y, textatt::LOG_BG_COLOR);
         }
       }
     }
@@ -529,34 +519,24 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
       painter->setPen(QPen(routeLogEntryOutlineColor, (outerlinewidth - lineWidth) / 2., Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       painter->setBrush(Qt::white);
       QPolygonF arrow = buildArrow(outerlinewidth);
-      for(int i = 0; i < visibleRouteGeometries.size(); i++)
-      {
-        const ageo::LineString& geo = visibleRouteGeometries.at(i);
-        if(geo.isValid())
-        {
-          // Draw waypoint symbols and text for route preview =========
-          for(int j = 1; j < geo.size(); j++)
-            paintArrowAlongLine(painter, ageo::Line(geo.at(j), geo.at(j - 1)), arrow, 0.5f /* pos*/, 40.f /* minLengthPx */);
-        }
-      }
+      for(int i = 1; i < visibleRouteGeometries.size(); i++)
+        // Draw waypoint symbols and text for route preview =========
+        paintArrowAlongLine(painter, ageo::Line(visibleRouteGeometries.at(i),
+                                                visibleRouteGeometries.at(i - 1)), arrow, 0.5f /* pos*/, 40.f /* minLengthPx */);
     }
   }
 
   // Draw track ==========================================================================
   if(!mapPaintWidget->isDistanceCutOff())
   {
-    if(context->objectDisplayTypes & map::LOGBOOK_TRACK && !visibleTrackGeometries.isEmpty())
+    if(context->objectDisplayTypes.testFlag(map::LOGBOOK_TRACK) && !visibleTrailGeometries.isEmpty())
     {
       // Use a darker pen for the trail but same style as normal trail ======================================
       QPen trackPen = mapcolors::aircraftTrailPen(context->sz(context->thicknessTrail, 2));
       trackPen.setColor(mapcolors::routeLogEntryColor.darker(200));
       painter->setPen(trackPen);
 
-      for(const ageo::LineString& geo: visibleTrackGeometries)
-      {
-        if(geo.isValid())
-          drawLineString(painter, geo);
-      }
+      paintAircraftTrail(visibleTrailGeometries, minAltitude, maxAltitude);
     }
   }
 
@@ -580,7 +560,7 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
     for(const ageo::LineString& line : geo)
     {
       if(line.size() > 1)
-        drawLineString(painter, line);
+        drawPolyline(painter, line);
       else
         drawCircle(painter, line.getPos1(), circleSize);
     }
@@ -590,7 +570,7 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
     for(const ageo::LineString& line : geo)
     {
       if(line.size() > 1)
-        drawLineString(painter, line);
+        drawPolyline(painter, line);
       else
         drawCircle(painter, line.getPos1(), circleSize);
     }
@@ -604,7 +584,7 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
       for(const MapLogbookEntry *entry : visibleLogEntries)
       {
         // Text for one line
-        ageo::LineString positions = entry->lineString();
+        const ageo::LineString positions = entry->lineString();
 
         TextPlacement textPlacement(context->painter, this, context->screenRect);
         textPlacement.setDrawFast(context->drawFast);
@@ -635,7 +615,6 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
     textflags::TextFlags flags = context->airportTextFlagsRoute(false /* draw as route */, true /* draw as log */);
     float size = context->szF(context->symbolSizeAirport, context->mapLayer->getAirportSymbolSize());
     context->szFont(context->textSizeFlightplan);
-    QMargins margins(120, 10, 10, 10);
 
     QSet<int> airportIds;
     for(const MapLogbookEntry *entry : allLogEntries)
@@ -644,8 +623,8 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
       if(!airportIds.contains(entry->departure.id))
       {
         if(entry->departure.isValid() ?
-           wToSBuf(entry->departure.position, x, y, margins) : // Use valid airport position
-           wToSBuf(entry->departurePos, x, y, margins)) // Use recorded position
+           wToSBuf(entry->departure.position, x, y, MARGINS) : // Use valid airport position
+           wToSBuf(entry->departurePos, x, y, MARGINS)) // Use recorded position
         {
           symbolPainter->drawAirportSymbol(context->painter, entry->departure, x, y, size, false, context->drawFast,
                                            context->flags2.testFlag(opts2::MAP_AIRPORT_HIGHLIGHT_ADDON));
@@ -659,8 +638,8 @@ void MapPainterMark::paintLogEntries(const QList<map::MapLogbookEntry>& entries)
       if(!airportIds.contains(entry->destination.id))
       {
         if(entry->destination.isValid() ?
-           wToSBuf(entry->destination.position, x, y, margins) :
-           wToSBuf(entry->destinationPos, x, y, margins))
+           wToSBuf(entry->destination.position, x, y, MARGINS) :
+           wToSBuf(entry->destinationPos, x, y, MARGINS))
         {
           symbolPainter->drawAirportSymbol(context->painter, entry->destination, x, y, size, false, context->drawFast,
                                            context->flags2.testFlag(opts2::MAP_AIRPORT_HIGHLIGHT_ADDON));
@@ -692,14 +671,14 @@ void MapPainterMark::paintAirwayList(const QList<map::MapAirway>& airwayList)
   float lineWidth = context->szF(context->thicknessUserFeature, 5.f);
   QPen outerPen(mapcolors::highlightBackColor, lineWidth, Qt::SolidLine, Qt::RoundCap);
   painter->setPen(outerPen);
-  drawLineString(painter, linestring);
+  drawPolyline(painter, linestring);
 
   // Inner line ================
   QPen innerPen(mapcolors::airwayVictorColor, lineWidth);
   innerPen.setWidthF(lineWidth * 0.5);
   innerPen.setColor(innerPen.color().lighter(150));
   painter->setPen(innerPen);
-  drawLineString(painter, linestring);
+  drawPolyline(painter, linestring);
 
   // Arrows ================
   QPolygonF arrow = buildArrow(lineWidth);
@@ -715,7 +694,7 @@ void MapPainterMark::paintAirwayList(const QList<map::MapAirway>& airwayList)
   }
 
   // Draw waypoint triangles =============================================
-  for(const ageo::Pos& pos : linestring)
+  for(const ageo::Pos& pos : qAsConst(linestring))
   {
     QPointF pt = wToS(pos);
     if(!pt.isNull())
@@ -739,7 +718,7 @@ void MapPainterMark::paintAirwayTextList(const QList<map::MapAirway>& airwayList
   {
     if(airway.isValid())
     {
-      QPen innerPen = mapcolors::colorForAirwayTrack(airway);
+      QPen innerPen = mapcolors::colorForAirwayOrTrack(airway);
 
       // Draw text  at center position of a line
       int x, y;
@@ -763,57 +742,51 @@ void MapPainterMark::paintAirwayTextList(const QList<map::MapAirway>& airwayList
 
 void MapPainterMark::paintAirspace(const map::MapAirspace& airspace)
 {
-  const ageo::LineString *airspaceGeometry = NavApp::getAirspaceController()->getAirspaceGeometry(airspace.combinedId());
   Marble::GeoPainter *painter = context->painter;
+  const OptionData& optionData = OptionData::instance();
 
   float lineWidth = context->szF(context->thicknessUserFeature, 5);
 
   QPen outerPen(mapcolors::highlightBackColor, lineWidth, Qt::SolidLine, Qt::FlatCap);
 
   // Make boundary pen the same color as airspace boundary without transparency
-  QPen innerPen = mapcolors::penForAirspace(airspace);
+  QPen innerPen = mapcolors::penForAirspace(airspace, optionData.getDisplayThicknessAirspace());
   innerPen.setWidthF(lineWidth * 0.5);
   QColor c = innerPen.color();
   c.setAlpha(255);
   innerPen.setColor(c);
 
-  painter->setBrush(mapcolors::colorForAirspaceFill(airspace));
+  painter->setBrush(mapcolors::colorForAirspaceFill(airspace, optionData.getDisplayTransparencyAirspace()));
   context->szFont(context->textSizeRangeUserFeature);
 
-  if(airspaceGeometry != nullptr)
+  if(context->viewportRect.overlaps(airspace.bounding))
   {
-    if(context->viewportRect.overlaps(airspace.bounding))
+    if(context->objCount())
+      return;
+
+    const atools::geo::LineString *lineString = NavApp::getAirspaceController()->getAirspaceGeometry(airspace.combinedId());
+
+    if(lineString != nullptr)
     {
-      if(context->objCount())
-        return;
-
-      Marble::GeoDataLinearRing linearRing;
-      linearRing.setTessellate(true);
-
-      for(const ageo::Pos& pos : *airspaceGeometry)
-        linearRing.append(Marble::GeoDataCoordinates(pos.getLonX(), pos.getLatY(), 0, DEG));
-      GeoDataCoordinates center = linearRing.latLonAltBox().center();
+      const QVector<QPolygonF *> polygons = createPolygons(*lineString, context->screenRect);
 
       if(!context->drawFast)
       {
         // Draw black background for outline
         painter->setPen(outerPen);
-        painter->drawPolygon(linearRing);
+        for(const QPolygonF *polygon : polygons)
+          painter->drawPolygon(*polygon);
         painter->setPen(innerPen);
       }
-      painter->drawPolygon(linearRing);
 
-      int x, y;
-      if(wToS(center, x, y))
-      {
-        QStringList texts;
-        texts << (airspace.isOnline() ? airspace.name : formatter::capNavString(airspace.name))
-              << map::airspaceTypeToString(airspace.type);
-        if(!airspace.restrictiveDesignation.isEmpty())
-          texts << (airspace.restrictiveType % "-" % airspace.restrictiveDesignation);
+      for(const QPolygonF *polygon : polygons)
+        painter->drawPolygon(*polygon);
 
-        symbolPainter->textBoxF(painter, {texts}, innerPen, x, y, textatt::CENTER);
-      }
+      QPointF center = polygons.constFirst()->boundingRect().center();
+      symbolPainter->textBoxF(painter, {map::airspaceNameMap(airspace, 20, true, true, true, true, true)}, innerPen,
+                              static_cast<float>(center.x()), static_cast<float>(center.y()), textatt::CENTER);
+
+      releasePolygons(polygons);
     }
   }
 }
@@ -837,7 +810,8 @@ void MapPainterMark::paintRangeMarks()
     {
       float maxRadiusNm = *maxRingIter;
 
-      if(context->viewportRect.overlaps(ageo::Rect(rings.position, ageo::nmToMeter(maxRadiusNm), true /* fast */)) || maxRadiusNm > 2000.f)
+      ageo::Rect rect(rings.position, ageo::nmToMeter(maxRadiusNm), true /* fast */);
+      if(context->viewportRect.overlaps(rect) || maxRadiusNm > 2000.f)
       {
         // Ring is visible - the rest of the visibility check is done in paintCircle
 
@@ -852,31 +826,34 @@ void MapPainterMark::paintRangeMarks()
           painter->drawEllipse(center, 4., 4.);
         }
 
-        painter->setBrush(Qt::NoBrush);
-
-        // Draw all rings
-        for(float radius : rings.ranges)
+        if(resolves(rect))
         {
-          QPoint textPos;
-          paintCircle(painter, rings.position, radius, context->drawFast, &textPos);
-          if(!textPos.isNull())
+          painter->setBrush(Qt::NoBrush);
+
+          // Draw all rings
+          for(float radius : rings.ranges)
           {
-            // paintCircle found a text position - draw text
-            painter->setPen(mapcolors::rangeRingTextColor);
+            QPoint textPos;
+            paintCircle(painter, rings.position, radius, context->drawFast, &textPos);
+            if(!textPos.isNull())
+            {
+              // paintCircle found a text position - draw text
+              painter->setPen(mapcolors::rangeRingTextColor);
 
-            QStringList texts;
+              QStringList texts;
 
-            if(!rings.text.isEmpty())
-              texts.append(rings.text);
+              if(!rings.text.isEmpty())
+                texts.append(rings.text);
 
-            // Build narrow text manually
-            if(radius > 0.f)
-              texts.append(tr("%1%2").arg(QLocale(QLocale::C).toString(Unit::distNmF(radius), 'g', 6)).arg(Unit::getUnitDistStr()));
+              // Build narrow text manually
+              if(radius > 0.f)
+                texts.append(tr("%1%2").arg(QLocale(QLocale::C).toString(Unit::distNmF(radius), 'g', 6)).arg(Unit::getUnitDistStr()));
 
-            textPos.ry() += painter->fontMetrics().height() / 2 - painter->fontMetrics().descent();
-            symbolPainter->textBox(painter, texts, painter->pen(), textPos.x(), textPos.y(), textatt::CENTER);
+              textPos.ry() += painter->fontMetrics().height() / 2 - painter->fontMetrics().descent();
+              symbolPainter->textBox(painter, texts, painter->pen(), textPos.x(), textPos.y(), textatt::CENTER);
 
-            painter->setPen(QPen(QBrush(rings.color), lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::MiterJoin));
+              painter->setPen(QPen(QBrush(rings.color), lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::MiterJoin));
+            }
           }
         }
       }
@@ -1274,10 +1251,8 @@ void MapPainterMark::paintCompassRose()
           else
             text = tr("%1°M").arg(QString::number(atools::roundToInt(aircraft.getTrackDegMag())));
 
-          symbolPainter->textBoxF(painter, {text, tr("TRK")}, painter->pen(),
-                                  static_cast<float>(trueTrackTextPoint.x()),
-                                  static_cast<float>(trueTrackTextPoint.y()),
-                                  textatt::CENTER | textatt::ROUTE_BG_COLOR);
+          symbolPainter->textBoxF(painter, {text, tr("TRK")}, painter->pen(), static_cast<float>(trueTrackTextPoint.x()),
+                                  static_cast<float>(trueTrackTextPoint.y()), textatt::CENTER | textatt::ROUTE_BG_COLOR);
         }
       }
     }
@@ -1310,17 +1285,7 @@ QStringList MapPainterMark::distanceMarkText(const map::DistanceMarker& marker, 
 
   // Distance ==========================================================
   if(context->dOptMeasurement(optsd::MEASUREMENT_DIST) && distanceMeter < INVALID_DISTANCE_VALUE)
-  {
-    if(Unit::getUnitDist() == opts::DIST_KM && Unit::getUnitShortDist() == opts::DIST_SHORT_METER && distanceMeter < 6000)
-      distStr = QLocale(QLocale::C).toString(distanceMeter, 'f', 0) % Unit::getUnitShortDistStr();
-    else
-    {
-      distStr = Unit::distMeter(distanceMeter, true /* addUnit */, 20, true /* narrow */);
-      if(distanceMeter < 6000.f)
-        // Add feet to text for short distances
-        distStr = Unit::distShortMeter(distanceMeter, true /* addUnit */, true /* narrow */);
-    }
-  }
+    distStr = Unit::distLongShortMeter(distanceMeter, tr("/"), true /* addUnit */, true /* narrow */);
 
   // Mag (/ true) Course on separate line ==========================================================
   QString initMagText = QString::number(ageo::normalizeCourse(initTrue - marker.magvar), 'f', DISTMARK_DEG_PRECISION);
@@ -1333,6 +1298,7 @@ QStringList MapPainterMark::distanceMarkText(const map::DistanceMarker& marker, 
     if(drawFast || initTrueText == finalTrueText)
       magTrueStr = initTrueText % magTrueSuffix;
     else
+      // Use backslash for separation to allow text placement to swap on direction
       magTrueStr = initTrueText % magTrueSuffix % '\\' % finalTrueText % magTrueSuffix;
   }
   else
@@ -1342,6 +1308,7 @@ QStringList MapPainterMark::distanceMarkText(const map::DistanceMarker& marker, 
       if(drawFast || initMagText == finalMagText)
         magTrueStr = initMagText % magSuffix;
       else
+        // Use backslash for separation to allow text placement to swap on direction
         magTrueStr = initMagText % magSuffix % '\\' % finalMagText % magSuffix;
     }
     if(context->dOptMeasurement(optsd::MEASUREMENT_TRUE))
@@ -1349,6 +1316,7 @@ QStringList MapPainterMark::distanceMarkText(const map::DistanceMarker& marker, 
       if(drawFast || initTrueText == finalTrueText)
         trueStr = initTrueText % trueSuffix;
       else
+        // Use backslash for separation to allow text placement to swap on direction
         trueStr = initTrueText % trueSuffix % '\\' % finalTrueText % trueSuffix;
     }
   }
@@ -1422,25 +1390,28 @@ void MapPainterMark::paintDistanceMarks()
       painter->drawLine(QPointF(x, y - symbolSize), QPointF(x, y + symbolSize));
     }
 
-    // Draw great circle line ========================================================
-    painter->setPen(QPen(color, lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::MiterJoin));
-    drawLine(painter, ageo::Line(marker->from, marker->to));
-
-    // Build '\n' separated texts =============================
-    QStringList texts =
-      distanceMarkText(*marker, marker->id == context->currentDistanceMarkerId && context->viewContext == Marble::Animation);
-
-    if(marker->from != marker->to)
+    if(resolves(ageo::Line(marker->from, marker->to)))
     {
-      painter->setPen(mapcolors::distanceMarkerTextColor);
-      TextPlacement textPlacement(context->painter, this, context->screenRect);
-      textPlacement.setArrowForEmpty(true);
-      textPlacement.setMinLengthForText(painter->fontMetrics().averageCharWidth() * 2);
-      textPlacement.setDrawFast(context->drawFast);
-      textPlacement.setLineWidth(lineWidth);
-      textPlacement.setTextOnLineCenter(true);
-      textPlacement.calculateTextAlongLine(ageo::Line(marker->from, marker->to), texts.join('\n'));
-      textPlacement.drawTextAlongLines();
+      // Draw great circle line ========================================================
+      painter->setPen(QPen(color, lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::MiterJoin));
+      drawLine(painter, ageo::Line(marker->from, marker->to));
+
+      // Build '\n' separated texts =============================
+      QStringList texts =
+        distanceMarkText(*marker, marker->id == context->currentDistanceMarkerId && context->viewContext == Marble::Animation);
+
+      if(marker->from != marker->to)
+      {
+        painter->setPen(mapcolors::distanceMarkerTextColor);
+        TextPlacement textPlacement(context->painter, this, context->screenRect);
+        textPlacement.setArrowForEmpty(true);
+        textPlacement.setMinLengthForText(painter->fontMetrics().averageCharWidth() * 2);
+        textPlacement.setDrawFast(context->drawFast);
+        textPlacement.setLineWidth(lineWidth);
+        textPlacement.setTextOnLineCenter(true);
+        textPlacement.calculateTextAlongLine(ageo::Line(marker->from, marker->to), texts.join('\n'));
+        textPlacement.drawTextAlongLines();
+      }
     }
   } // for(const map::DistanceMarker& marker : distanceMarkers)
 }
@@ -1460,6 +1431,10 @@ void MapPainterMark::paintPatternMarks()
 
   QPolygonF arrow = buildArrow(lineWidth * 2.3f);
 
+  // . B---------Downwind---------------C
+  // . a                                r
+  // . s                                o
+  // . e--Final--==Runway==--Departure--s
   for(const PatternMarker& pattern : patterns)
   {
     bool visibleOrigin, hiddenOrigin;
@@ -1467,54 +1442,53 @@ void MapPainterMark::paintPatternMarks()
     if(hiddenOrigin)
       continue;
 
-    float finalDistance = pattern.base45Degree ? pattern.downwindDistance : pattern.baseDistance;
-    if(context->mapLayer->isApproach() && scale->getPixelForNm(finalDistance) > 5.f)
-    {
+    // All distances in meter
+    float runwayLength = ageo::feetToMeter(pattern.runwayLength);
+    float parallelDist = ageo::nmToMeter(pattern.downwindParallelDistance);
+    float departureDist = pattern.base45Degree ? ageo::nmToMeter(pattern.downwindParallelDistance) + runwayLength :
+                          ageo::nmToMeter(pattern.departureDistance);
+    float finalDist = ageo::nmToMeter(pattern.base45Degree ? pattern.downwindParallelDistance : pattern.finalDistance);
 
-      // Turn point base to final
-      ageo::Pos baseFinal = pattern.position.endpoint(ageo::nmToMeter(finalDistance),
-                                                      ageo::opposedCourseDeg(pattern.courseTrue));
+    if(context->mapLayer->isApproach() && scale->getPixelForNm(finalDist) > 5.f)
+    {
+      // Turn point base to final - extend from runway
+      ageo::Pos baseToFinal = pattern.position.endpoint(finalDist, ageo::opposedCourseDeg(pattern.courseTrue));
 
       // Turn point downwind to base
-      ageo::Pos downwindBase = baseFinal.endpoint(ageo::nmToMeter(pattern.downwindDistance),
-                                                  pattern.courseTrue + (pattern.turnRight ? 90.f : -90.f));
+      ageo::Pos downwindToBase = baseToFinal.endpoint(parallelDist, pattern.courseTrue + (pattern.turnRight ? 90.f : -90.f));
 
-      // Turn point upwind to crosswind
-      ageo::Pos upwindCrosswind = pattern.position.endpoint(ageo::nmToMeter(finalDistance) + ageo::feetToMeter(pattern.runwayLength),
-                                                            pattern.courseTrue);
+      // Turn point departure to crosswind
+      ageo::Pos departureToCrosswind = pattern.position.endpoint(departureDist, pattern.courseTrue);
 
       // Turn point crosswind to downwind
-      ageo::Pos crosswindDownwind = upwindCrosswind.endpoint(ageo::nmToMeter(pattern.downwindDistance),
-                                                             pattern.courseTrue +
-                                                             (pattern.turnRight ? 90.f : -90.f));
+      ageo::Pos crosswindToDownwind = departureToCrosswind.endpoint(parallelDist, pattern.courseTrue + (pattern.turnRight ? 90.f : -90.f));
 
       // Calculate bounding rectangle and check if it is at least partially visible
-      ageo::Rect rect(baseFinal);
-      rect.extend(downwindBase);
-      rect.extend(upwindCrosswind);
-      rect.extend(crosswindDownwind);
+      ageo::Rect rect(baseToFinal);
+      rect.extend(downwindToBase);
+      rect.extend(departureToCrosswind);
+      rect.extend(crosswindToDownwind);
 
       // Expand rect by approximately 2 NM
       rect.inflateMeter(ageo::nmToMeter(2.f), ageo::nmToMeter(2.f));
 
-      if(context->viewportRect.overlaps(rect))
+      if(resolves(rect))
       {
         // Entry at opposite runway threshold
-        ageo::Pos downwindEntry = downwindBase.endpoint(ageo::nmToMeter(finalDistance) +
-                                                        ageo::feetToMeter(pattern.runwayLength), pattern.courseTrue);
+        ageo::Pos downwindEntry = downwindToBase.endpoint(finalDist + runwayLength, pattern.courseTrue);
 
         bool visible, hidden;
         // Bail out if any points are hidden behind the globe
-        QPointF baseFinalPoint = wToS(baseFinal, DEFAULT_WTOS_SIZE, &visible, &hidden);
+        QPointF baseFinalPoint = wToS(baseToFinal, DEFAULT_WTOS_SIZE, &visible, &hidden);
         if(hidden)
           continue;
-        QPointF downwindBasePoint = wToS(downwindBase, DEFAULT_WTOS_SIZE, &visible, &hidden);
+        QPointF downwindBasePoint = wToS(downwindToBase, DEFAULT_WTOS_SIZE, &visible, &hidden);
         if(hidden)
           continue;
-        QPointF upwindCrosswindPoint = wToS(upwindCrosswind, DEFAULT_WTOS_SIZE, &visible, &hidden);
+        QPointF upwindCrosswindPoint = wToS(departureToCrosswind, DEFAULT_WTOS_SIZE, &visible, &hidden);
         if(hidden)
           continue;
-        QPointF crosswindDownwindPoint = wToS(crosswindDownwind, DEFAULT_WTOS_SIZE, &visible, &hidden);
+        QPointF crosswindDownwindPoint = wToS(crosswindToDownwind, DEFAULT_WTOS_SIZE, &visible, &hidden);
         if(hidden)
           continue;
         QPointF downwindEntryPoint = wToS(downwindEntry, DEFAULT_WTOS_SIZE, &visible, &hidden);
@@ -1523,15 +1497,14 @@ void MapPainterMark::paintPatternMarks()
         bool drawDetails = QLineF(baseFinalPoint, crosswindDownwindPoint).length() > 50.;
 
         // Calculate polygon rounding in pixels =======================
-        float pixelForNm = scale->getPixelForNm(pattern.downwindDistance, pattern.courseTrue + 90.f);
-        atools::util::RoundedPolygon polygon(pixelForNm / 3.f,
-                                             {originPoint, upwindCrosswindPoint, crosswindDownwindPoint,
-                                              downwindBasePoint, baseFinalPoint});
+        float pixelForNm = scale->getPixelForNm(pattern.downwindParallelDistance, pattern.courseTrue + 90.f);
+        atools::util::RoundedPolygon polygon(pixelForNm / 3.f, {originPoint, upwindCrosswindPoint, crosswindDownwindPoint,
+                                                                downwindBasePoint, baseFinalPoint});
 
         QLineF downwind(crosswindDownwindPoint, downwindBasePoint);
         QLineF upwind(originPoint, upwindCrosswindPoint);
         float angle = static_cast<float>(ageo::angleFromQt(downwind.angle()));
-        float oppAngle = static_cast<float>(ageo::opposedCourseDeg(ageo::angleFromQt(downwind.angle())));
+        float oppositeAngle = static_cast<float>(ageo::opposedCourseDeg(ageo::angleFromQt(downwind.angle())));
 
         if(pattern.showEntryExit && context->mapLayer->isApproachText())
         {
@@ -1541,19 +1514,18 @@ void MapPainterMark::paintPatternMarks()
           drawLine(painter, upwind);
 
           // Straight out exit for pattern =======================
-          QPointF exitStraight = wToS(upwindCrosswind.endpoint(ageo::nmToMeter(1.f), oppAngle), DEFAULT_WTOS_SIZE, &visible, &hidden);
+          QPointF exitStraight =
+            wToS(departureToCrosswind.endpoint(ageo::nmToMeter(1.f), oppositeAngle), DEFAULT_WTOS_SIZE, &visible, &hidden);
           drawLine(painter, upwind.p2(), exitStraight);
 
           // 45 degree exit for pattern =======================
-          QPointF exit45Deg = wToS(upwindCrosswind.endpoint(
-                                     ageo::nmToMeter(1.f), oppAngle + (pattern.turnRight ? 45.f : -45.f)), DEFAULT_WTOS_SIZE, &visible,
-                                   &hidden);
+          QPointF exit45Deg = wToS(departureToCrosswind.endpoint(ageo::nmToMeter(1.f), oppositeAngle + (pattern.turnRight ? 45.f : -45.f)),
+                                   DEFAULT_WTOS_SIZE, &visible, &hidden);
           drawLine(painter, upwind.p2(), exit45Deg);
 
           // Entry to downwind
-          QPointF entry =
-            wToS(downwindEntry.endpoint(ageo::nmToMeter(1.f), oppAngle + (pattern.turnRight ? 45.f : -45.f)), DEFAULT_WTOS_SIZE, &visible,
-                 &hidden);
+          QPointF entry = wToS(downwindEntry.endpoint(ageo::nmToMeter(1.f), oppositeAngle + (pattern.turnRight ? 45.f : -45.f)),
+                               DEFAULT_WTOS_SIZE, &visible, &hidden);
           drawLine(painter, downwindEntryPoint, entry);
 
           if(drawDetails)
@@ -1578,7 +1550,8 @@ void MapPainterMark::paintPatternMarks()
           QString text = tr("%1/%2").
                          arg(Unit::altFeet(pattern.position.getAltitude(), true /* addUnit */, true /* narrow */, 10.f /* round */)).
                          arg(formatter::courseTextFromTrue(ageo::opposedCourseDeg(pattern.courseTrue), pattern.magvar,
-                                                           false /* magBold */, false /* trueSmall */, true /* narrow */));
+                                                           false /* magBold */, false /* magBig */,
+                                                           false /* trueSmall */, true /* narrow */));
 
           painter->setBrush(Qt::white);
           textPlacement.drawTextAlongOneLine(text, angle, center, atools::roundToInt(downwind.length()));
@@ -1586,9 +1559,9 @@ void MapPainterMark::paintPatternMarks()
           // Text for final leg =======================================
           text = tr("RW%1/%2").
                  arg(pattern.runwayName).
-                 arg(formatter::courseTextFromTrue(pattern.courseTrue, pattern.magvar, false /* magBold */, false /* trueSmall */,
-                                                   true /* narrow */));
-          textPlacement.drawTextAlongOneLine(text, oppAngle, final.pointAt(0.60), atools::roundToInt(final.length()));
+                 arg(formatter::courseTextFromTrue(pattern.courseTrue, pattern.magvar, false /* magBold */, false /* magBig */,
+                                                   false /* trueSmall */, true /* narrow */));
+          textPlacement.drawTextAlongOneLine(text, oppositeAngle, final.pointAt(0.60), atools::roundToInt(final.length()));
 
           // Draw arrows on legs =======================================
           // Set a lighter fill color for arrows
@@ -1656,7 +1629,7 @@ void MapPainterMark::paintRouteDrag()
       context->painter->setPen(QPen(mapcolors::mapDragColor, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
       // Draw lines from current mouse position to all fixed points which can be waypoints or several alternates
-      for(const ageo::Pos& pos : fixed)
+      for(const ageo::Pos& pos : qAsConst(fixed))
         drawLine(context->painter, ageo::Line(curGeo, pos));
     }
   }

@@ -305,7 +305,7 @@ void FetchRouteDialog::downloadFinished(const QByteArray& data, QString)
   {
     // Assign to SID - wrong runways will be replaced
     if(!properties.value(apln::SID).isEmpty())
-      properties.insert(apln::SIDRW, departureRunway);
+      properties.insert(apln::SID_RW, departureRunway);
     else
     {
       // Use as start parking - position will be calculated automatically when reading flight plan
@@ -316,14 +316,15 @@ void FetchRouteDialog::downloadFinished(const QByteArray& data, QString)
 
   if(!destinationRunway.isEmpty())
     // Assign to STAR - wrong runways will be replaced
-    properties.insert(apln::STARRW, destinationRunway);
+    properties.insert(apln::STAR_RW, destinationRunway);
 
   QString message(tr("<p>Flight successfully downloaded. Reading of route description %1.").arg(ok ? tr("successful") : tr("failed")));
 
   // Add any information/warning/error messages from parsing
   message.append(tr("<p>"));
-  if(!routeStringReader.getMessages().isEmpty())
-    message.append(routeStringReader.getMessages().join("<br/>"));
+  const QStringList messages = routeStringReader.getAllMessages();
+  if(!messages.isEmpty())
+    message.append(messages.join("<br/>"));
   message.append(tr("</p>"));
 
   if(!ok)

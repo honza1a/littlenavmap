@@ -17,7 +17,6 @@
 
 #include "mappainter/mappaintervehicle.h"
 
-#include "common/aircrafttrack.h"
 #include "common/mapcolors.h"
 #include "common/symbolpainter.h"
 #include "common/unit.h"
@@ -198,7 +197,7 @@ void MapPainterVehicle::paintTurnPath(const atools::fs::sc::SimConnectUserAircra
             step++;
           }
 
-          drawLineString(context->painter, line);
+          drawPolyline(context->painter, line);
         } // if(pixelForMaxTurnPath > 20)
       } // if(groundSpeedKts > 20.f)
     } // if(aircraftPos.isValid())
@@ -215,20 +214,6 @@ float MapPainterVehicle::calcRotation(const SimConnectAircraft& aircraft)
 
   // Get projection corrected rotation angle
   return scale->getScreenRotation(rotate, aircraft.getPosition(), context->zoomDistanceMeter);
-}
-
-void MapPainterVehicle::paintAircraftTrack()
-{
-  const AircraftTrack& aircraftTrack = NavApp::getAircraftTrack();
-
-  if(!aircraftTrack.isEmpty())
-  {
-    context->painter->setPen(mapcolors::aircraftTrailPen(context->sz(context->thicknessTrail, 2)));
-
-    // Draw with simple precision
-    for(const LineString& line : aircraftTrack.getLineStrings())
-      drawLineString(context->painter, line);
-  }
 }
 
 void MapPainterVehicle::paintTextLabelAi(float x, float y, float size, const SimConnectAircraft& aircraft, bool forceLabelNearby)
@@ -413,7 +398,7 @@ void MapPainterVehicle::paintTextLabelUser(float x, float y, int size, const Sim
     {
       ice.prepend(tr("Ice %"));
       symbolPainter->textBoxF(context->painter, ice, mapcolors::aircraftUserLabelColor, x - size * 3 / 4, y,
-                              textatt::ERROR_COLOR | textatt::RIGHT, 255, mapcolors::aircraftUserLabelColorBg);
+                              textatt::ERROR_COLOR | textatt::LEFT, 255, mapcolors::aircraftUserLabelColorBg);
     }
   }
 
@@ -531,7 +516,7 @@ void MapPainterVehicle::paintTextLabelWind(float x, float y, float size, const S
     }
     else
     {
-      atts |= textatt::CENTER | textatt::VERT_BELOW;
+      atts |= textatt::CENTER | textatt::BELOW;
       texts.append(tr("No wind"));
       xs = x;
       ys = y;

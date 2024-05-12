@@ -25,6 +25,7 @@
 
 #include <QPen>
 #include <QFont>
+#include <QDateTime>
 
 namespace atools {
 namespace geo {
@@ -46,14 +47,14 @@ class MapScale;
 class MapWidget;
 class SymbolPainter;
 class WaypointTrackQuery;
-class AircraftTrack;
 class Route;
 
 namespace map {
 struct MapAirport;
-struct MapObjectRef;
+struct MapRef;
 struct MapHolding;
 struct MapAirportMsa;
+
 }
 
 /* Struct that is passed to all painters */
@@ -74,6 +75,7 @@ struct PaintContext
   map::MapTypes objectTypes; /* Object types that should be drawn */
   map::MapDisplayTypes objectDisplayTypes; /* Object types that should be drawn */
   map::MapAirspaceFilter airspaceFilterByLayer; /* Airspaces */
+  map::MapAirspaceTypes airspaceTextsByLayer;
   atools::geo::Rect viewportRect; /* Rectangle of current viewport */
   QRect screenRect; /* Screen coordinate rect */
 
@@ -92,11 +94,8 @@ struct PaintContext
 
   // All waypoints from the route and add them to the map to avoid duplicate drawing
   // Same for procedure preview
-  QSet<map::MapObjectRef> routeProcIdMap, /* Navaids on plan */
-                          routeProcIdMapRec /* Recommended navaids */;
-
-  // All airport ids which are to be drawn
-  QSet<QString> visibleAirportIds;
+  QSet<map::MapRef> routeProcIdMap, /* Navaids on plan */
+                    routeProcIdMapRec /* Recommended navaids */;
 
   optsac::DisplayOptionsUserAircraft dispOptsUser;
   optsac::DisplayOptionsAiAircraft dispOptsAi;
@@ -110,7 +109,7 @@ struct PaintContext
   bool visibleWidget;
   bool paintCopyright = true;
   int mimimumRunwayLengthFt = -1; /* Value from toolbar */
-  QVector<map::MapObjectRef> *routeDrawnNavaids; /* All navaids drawn for route and procedures. Points to vector in MapScreenIndex */
+  QVector<map::MapRef> *routeDrawnNavaids; /* All navaids drawn for route and procedures. Points to vector in MapScreenIndex */
   int currentDistanceMarkerId = -1;
 
   /* Text sizes and line thickness in percent / 100 as set in options dialog */
@@ -120,6 +119,7 @@ struct PaintContext
   float symbolSizeHighlight = 1.f;
   float thicknessFlightplan = 1.f;
   float textSizeNavaid = 1.f;
+  float textSizeAirspace = 1.f;
   float textSizeUserpoint = 1.f;
   float textSizeAirway = 1.f;
   float thicknessAirway = 1.f;
@@ -244,6 +244,26 @@ struct PaintContext
   textflags::TextFlags airportTextFlagsMinor() const;
   textflags::TextFlags airportTextFlagsRoute(bool drawAsRoute, bool drawAsLog) const;
 
+  void startTimer(const QString& label)
+  {
+    if(verboseDraw)
+      renderTimesMs.insert(label, QDateTime::currentMSecsSinceEpoch());
+  }
+
+  void endTimer(const QString& label)
+  {
+    if(verboseDraw)
+      renderTimesMs.insert(label, QDateTime::currentMSecsSinceEpoch() - renderTimesMs.value(label));
+  }
+
+  void clearTimer()
+  {
+    if(verboseDraw)
+      renderTimesMs.clear();
+  }
+
+  bool verboseDraw = false;
+  QMap<QString, qint64> renderTimesMs;
 };
 
 /* Used to collect airports for drawing. Needs to copy airport since it might be removed from the cache. */
@@ -259,6 +279,7 @@ struct PaintAirportType
   PaintAirportType(const PaintAirportType& other)
   {
     this->operator=(other);
+
   }
 
   PaintAirportType& operator=(const PaintAirportType& other);
@@ -317,11 +338,15 @@ protected:
                 bool fast);
 
   void drawLineString(Marble::GeoPainter *painter, const atools::geo::LineString& linestring);
-  void drawLineStringRadial(Marble::GeoPainter *painter, const atools::geo::LineString& linestring);
-  void drawLine(Marble::GeoPainter *painter, const atools::geo::Line& line, bool noRecurse = false);
-  void drawLineRadial(Marble::GeoPainter *painter, const atools::geo::Line& line, bool noRecurse = false);
+  void drawLine(Marble::GeoPainter *painter, const atools::geo::Line& line, bool forceDraw = false);
 
   void drawPolygon(Marble::GeoPainter *painter, const atools::geo::LineString& linestring);
+  void drawPolygons(Marble::GeoPainter *painter, const QVector<QPolygonF *>& polygons);
+  void drawPolygon(Marble::GeoPainter *painter, const QPolygonF& polygon);
+
+  void drawPolyline(Marble::GeoPainter *painter, const atools::geo::LineString& linestring);
+  void drawPolylines(Marble::GeoPainter *painter, const QVector<QPolygonF *>& polygons);
+  void drawPolyline(Marble::GeoPainter *painter, const QPolygonF& polygon);
 
   /* Draw simple text with current settings. Corners are the text corners pointing to the position */
   void drawText(Marble::GeoPainter *painter, const atools::geo::Pos& pos, const QString& text, bool topCorner, bool leftCorner);
@@ -363,6 +388,8 @@ protected:
                                   QLineF *extensionLine, const QString& text, const QColor& textColor,
                                   const QColor& textColorBackground);
 
+  void paintAircraftTrail(const QVector<atools::geo::LineString>& lineStrings, float minAlt, float maxAlt);
+
   /* Arrow pointing upwards or downwards */
   QPolygonF buildArrow(float size, bool downwards = false);
 
@@ -399,6 +426,8 @@ protected:
   WaypointTrackQuery *waypointQuery = nullptr;
   AirportQuery *airportQuery = nullptr;
   MapScale *scale = nullptr;
+
+private:
 };
 
 #endif // LITTLENAVMAP_MAPPAINTER_H

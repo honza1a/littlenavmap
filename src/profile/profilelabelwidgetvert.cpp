@@ -17,14 +17,14 @@
 
 #include "profile/profilelabelwidgetvert.h"
 
-#include "profile/profilewidget.h"
-#include "common/symbolpainter.h"
-#include "common/mapcolors.h"
-#include "profile/profilescrollarea.h"
-#include "profile/profileoptions.h"
 #include "app/navapp.h"
-#include "route/route.h"
+#include "common/mapcolors.h"
+#include "common/symbolpainter.h"
 #include "common/unit.h"
+#include "profile/profileoptions.h"
+#include "profile/profilescrollarea.h"
+#include "profile/profilewidget.h"
+#include "route/route.h"
 
 #include <QContextMenuEvent>
 #include <QPainter>
@@ -81,6 +81,7 @@ void ProfileLabelWidgetVert::paintEvent(QPaintEvent *)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
 
     // Fill background white
     painter.fillRect(rect(), QApplication::palette().color(QPalette::Base));
@@ -97,7 +98,7 @@ void ProfileLabelWidgetVert::paintEvent(QPaintEvent *)
 
       // Draw altitude labels ================================
       SymbolPainter symPainter;
-      QVector<std::pair<int, int> > scaleValues = profileWidget->calcScaleValues();
+      const QVector<std::pair<int, int> > scaleValues = profileWidget->calcScaleValues();
 
       QFont f = QApplication::font();
       f.setPointSizeF(f.pointSizeF() * 0.9);
@@ -105,7 +106,7 @@ void ProfileLabelWidgetVert::paintEvent(QPaintEvent *)
       painter.setFont(f);
       QFontMetrics metrics(f);
 
-      textatt::TextAttributes atts = textatt::BOLD | textatt::RIGHT;
+      textatt::TextAttributes atts = textatt::BOLD | textatt::LEFT;
       QColor baseColor = QApplication::palette().color(QPalette::Base);
       int maxw = 1;
       for(const std::pair<int, int>& scale : scaleValues)

@@ -87,9 +87,6 @@ InfoController::InfoController(MainWindow *parent)
                                                          tr("Open or close tabs"));
   tabHandlerAircraft->init(ic::TabAircraftIds, lnm::INFOWINDOW_WIDGET_AIRCRAFT_TABS);
 
-  infoFontPtSize = static_cast<float>(ui->textBrowserAirportInfo->font().pointSizeF());
-  simInfoFontPtSize = static_cast<float>(ui->textBrowserAircraftInfo->font().pointSizeF());
-
   // Set search path to silence text browser warnings
   QStringList paths({QApplication::applicationDirPath()});
   ui->textBrowserAirportInfo->setSearchPaths(paths);
@@ -466,47 +463,47 @@ void InfoController::anchorClicked(const QUrl& url)
 void InfoController::saveState()
 {
   // Store currently shown map objects in a string list containing id and type
-  map::MapObjectRefVector refs;
-  for(const map::MapAirport& airport  : currentSearchResult.airports)
+  map::MapRefVector refs;
+  for(const map::MapAirport& airport  : qAsConst(currentSearchResult.airports))
     refs.append({airport.id, map::AIRPORT});
 
-  for(const map::MapAirportMsa& msa  : currentSearchResult.airportMsa)
+  for(const map::MapAirportMsa& msa  : qAsConst(currentSearchResult.airportMsa))
     refs.append({msa.id, map::AIRPORT_MSA});
 
-  for(const map::MapVor& vor : currentSearchResult.vors)
+  for(const map::MapVor& vor : qAsConst(currentSearchResult.vors))
     refs.append({vor.id, map::VOR});
 
-  for(const map::MapNdb& ndb : currentSearchResult.ndbs)
+  for(const map::MapNdb& ndb : qAsConst(currentSearchResult.ndbs))
     refs.append({ndb.id, map::NDB});
 
-  for(const map::MapWaypoint& waypoint : currentSearchResult.waypoints)
+  for(const map::MapWaypoint& waypoint : qAsConst(currentSearchResult.waypoints))
     refs.append({waypoint.id, map::WAYPOINT});
 
-  for(const map::MapIls& ils : currentSearchResult.ils)
+  for(const map::MapIls& ils : qAsConst(currentSearchResult.ils))
     refs.append({ils.id, map::ILS});
 
-  for(const map::MapHolding& holding : currentSearchResult.holdings)
+  for(const map::MapHolding& holding : qAsConst(currentSearchResult.holdings))
     refs.append({holding.id, map::HOLDING});
 
-  for(const map::MapUserpoint& userpoint: currentSearchResult.userpoints)
+  for(const map::MapUserpoint& userpoint: qAsConst(currentSearchResult.userpoints))
     refs.append({userpoint.id, map::USERPOINT});
 
-  for(const map::MapLogbookEntry& logEntry : currentSearchResult.logbookEntries)
+  for(const map::MapLogbookEntry& logEntry : qAsConst(currentSearchResult.logbookEntries))
     refs.append({logEntry.id, map::LOGBOOK});
 
-  for(const map::MapAirway& airway : currentSearchResult.airways)
+  for(const map::MapAirway& airway : qAsConst(currentSearchResult.airways))
     refs.append({airway.id, map::AIRWAY});
 
   // Save list =====================================================
   atools::settings::Settings& settings = atools::settings::Settings::instance();
   QStringList refList;
-  for(const map::MapObjectRef& ref : refs)
+  for(const map::MapRef& ref : refs)
     refList.append(QString("%1;%2").arg(ref.id).arg(ref.objType));
   settings.setValue(lnm::INFOWINDOW_CURRENTMAPOBJECTS, refList.join(";"));
 
   // Save airspaces =====================================================
   refList.clear();
-  for(const map::MapAirspace& airspace : currentSearchResult.airspaces)
+  for(const map::MapAirspace& airspace : qAsConst(currentSearchResult.airspaces))
   {
     // Do not save online airspace ids since they will change on next startup
     if(!airspace.isOnline())
@@ -533,7 +530,7 @@ void InfoController::restoreState()
 
 void InfoController::restoreInformation()
 {
-  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_INFO)
+  if(OptionData::instance().getFlags() & opts::STARTUP_LOAD_INFO && !NavApp::isSafeMode())
   {
     // Go through the string and collect all objects in the MapSearchResult
     map::MapResult res;
@@ -672,7 +669,7 @@ void InfoController::onlineNetworkChanged()
 
   // Remove all online network airspaces from current result
   QList<map::MapAirspace> airspaces;
-  for(const map::MapAirspace& airspace : currentSearchResult.airspaces)
+  for(const map::MapAirspace& airspace : qAsConst(currentSearchResult.airspaces))
     if(!airspace.isOnline())
       airspaces.append(airspace);
   currentSearchResult.airspaces = airspaces;
@@ -717,7 +714,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
     QSet<int> onlineIds;
 
     // Get shadowed online aircraft from AI shadows ====================
-    for(const map::MapAiAircraft& mapAiAircraft : result.aiAircraft)
+    for(const map::MapAiAircraft& mapAiAircraft : qAsConst(result.aiAircraft))
     {
       atools::fs::sc::SimConnectAircraft onlineAircraft = onlineDataController->getShadowedOnlineAircraft(mapAiAircraft.getAircraft());
 
@@ -730,7 +727,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
     }
 
     // Add present online aircraft which are not already added by shadow above ================
-    for(const map::MapOnlineAircraft& mapOnlineAircraft : result.onlineAircraft)
+    for(const map::MapOnlineAircraft& mapOnlineAircraft : qAsConst(result.onlineAircraft))
     {
       if(!onlineIds.contains(mapOnlineAircraft.getId()))
         onlineAircraftList.append(map::MapOnlineAircraft(mapOnlineAircraft));
@@ -786,7 +783,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
       currentSearchResult.onlineAircraft.clear();
       currentSearchResult.onlineAircraftIds.clear();
 
-      for(const map::MapOnlineAircraft& mapOnlineAircraft : result.onlineAircraft)
+      for(const map::MapOnlineAircraft& mapOnlineAircraft : qAsConst(result.onlineAircraft))
       {
         atools::fs::sc::SimConnectAircraft ac = onlineDataController->getClientAircraftById(mapOnlineAircraft.getId());
 
@@ -899,8 +896,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
     // Delete all airspaces that were removed from the database inbetween
     QList<map::MapAirspace> onlineAirspaces = result.getOnlineAirspaces();
     QList<map::MapAirspace>::iterator it = std::remove_if(onlineAirspaces.begin(), onlineAirspaces.end(),
-                                                          [ = ](const map::MapAirspace& airspace) -> bool
-    {
+                                                          [this](const map::MapAirspace& airspace) -> bool {
       return !airspaceController->hasAirspaceById({airspace.id, map::AIRSPACE_SRC_ONLINE});
     });
     if(it != onlineAirspaces.end())
@@ -915,7 +911,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
     html.b().a(tr("Remove Center Highlights"), QString("lnm://do?hideonlineairspaces"),
                ahtml::LINK_NO_UL).bEnd().tdEnd().trEnd().tableEnd();
 
-    for(const map::MapAirspace& airspace : onlineAirspaces)
+    for(const map::MapAirspace& airspace : qAsConst(onlineAirspaces))
     {
 #ifdef DEBUG_INFORMATION
       qDebug() << "Found airspace" << airspace.id;
@@ -944,7 +940,7 @@ void InfoController::showInformationInternal(map::MapResult result, bool showWin
 
     currentSearchResult.logbookEntries.clear();
 
-    for(const map::MapLogbookEntry& logEntry : result.logbookEntries)
+    for(const map::MapLogbookEntry& logEntry : qAsConst(result.logbookEntries))
     {
       qDebug() << "Found log entry" << logEntry.id;
 
@@ -1138,7 +1134,7 @@ bool InfoController::updateUserpointInternal(const map::MapResult& result, bool 
   bool foundUserpoint = false;
 
   // Userpoints on top of the list
-  for(map::MapUserpoint userpoint: result.userpoints)
+  for(const map::MapUserpoint& userpoint : qAsConst(result.userpoints))
   {
 #ifdef DEBUG_INFORMATION
     qDebug() << "Found waypoint" << userpoint.ident;
@@ -1183,10 +1179,8 @@ void InfoController::styleChanged()
 void InfoController::tracksChanged()
 {
   // Remove tracks from current result since the ids might change
-  currentSearchResult.airways.erase(std::remove_if(currentSearchResult.airways.begin(),
-                                                   currentSearchResult.airways.end(),
-                                                   [ = ](const map::MapAirway& airway) -> bool
-  {
+  currentSearchResult.airways.erase(std::remove_if(currentSearchResult.airways.begin(), currentSearchResult.airways.end(),
+                                                   [](const map::MapAirway& airway) -> bool {
     return airway.isTrack();
   }), currentSearchResult.airways.end());
 
@@ -1285,7 +1279,7 @@ void InfoController::updateAiAircraftText()
         if(!currentSearchResult.aiAircraft.isEmpty())
         {
           int num = 1;
-          for(const map::MapAiAircraft& aircraft : currentSearchResult.aiAircraft)
+          for(const map::MapAiAircraft& aircraft : qAsConst(currentSearchResult.aiAircraft))
           {
             infoBuilder->aircraftText(aircraft.getAircraft(), html, num, lastSimData.getAiAircraftConst().size());
 
@@ -1385,12 +1379,9 @@ void InfoController::updateAiAirports(const atools::fs::sc::SimConnectData& data
     QList<map::MapAiAircraft> newAiAircraftShown;
 
     // Find all aircraft currently shown on the page in the newly arrived ai list
-    for(const map::MapAiAircraft& aircraft : currentSearchResult.aiAircraft)
+    for(const map::MapAiAircraft& aircraft : qAsConst(currentSearchResult.aiAircraft))
     {
-      QVector<atools::fs::sc::SimConnectAircraft>::const_iterator it =
-        std::find_if(newAiAircraft.constBegin(), newAiAircraft.constEnd(),
-                     [ = ](const SimConnectAircraft& ac) -> bool
-      {
+      auto it = std::find_if(newAiAircraft.constBegin(), newAiAircraft.constEnd(), [&aircraft](const SimConnectAircraft& ac) -> bool {
         return ac.getObjectId() == aircraft.getAircraft().getObjectId();
       });
       if(it != newAiAircraft.end())
@@ -1430,50 +1421,44 @@ void InfoController::optionsChanged()
   updateAircraftInfo();
 }
 
+void InfoController::fontChanged(const QFont&)
+{
+  optionsChanged();
+}
+
 /* Update font size in text browsers if options have changed */
 void InfoController::updateTextEditFontSizes()
 {
   Ui::MainWindow *ui = NavApp::getMainUi();
 
-  int sizePercent = OptionData::instance().getGuiInfoTextSize();
-  setTextEditFontSize(ui->textBrowserAirportInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserRunwayInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserComInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserApproachInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserNearestInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserWeatherInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserNavaidInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserUserpointInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserAirspaceInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserLogbookInfo, infoFontPtSize, sizePercent);
+  using atools::gui::setWidgetFontSize;
 
-  setTextEditFontSize(ui->textBrowserCenterInfo, infoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserClientInfo, infoFontPtSize, sizePercent);
+  int sizePercentInfo = OptionData::instance().getGuiInfoTextSize();
+  setWidgetFontSize(ui->textBrowserAirportInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserRunwayInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserComInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserApproachInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserNearestInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserWeatherInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserNavaidInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserUserpointInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserAirspaceInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserLogbookInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserCenterInfo, sizePercentInfo);
+  setWidgetFontSize(ui->textBrowserClientInfo, sizePercentInfo);
 
-  sizePercent = OptionData::instance().getGuiInfoSimSize();
-  setTextEditFontSize(ui->textBrowserAircraftInfo, simInfoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserAircraftProgressInfo, simInfoFontPtSize, sizePercent);
-  setTextEditFontSize(ui->textBrowserAircraftAiInfo, simInfoFontPtSize, sizePercent);
+  int sizePercentSim = OptionData::instance().getGuiInfoSimSize();
+  setWidgetFontSize(ui->textBrowserAircraftInfo, sizePercentSim);
+  setWidgetFontSize(ui->textBrowserAircraftProgressInfo, sizePercentSim);
+  setWidgetFontSize(ui->textBrowserAircraftAiInfo, sizePercentSim);
 
   // Adjust symbol sizes
-  int infoFontPixelSize = ui->textBrowserAirportInfo->fontMetrics().height();
+  int infoFontPixelSize = atools::roundToInt(QFontMetricsF(ui->textBrowserAirportInfo->font()).height() * 1.2);
   infoBuilder->setSymbolSize(QSize(infoFontPixelSize, infoFontPixelSize));
-  infoBuilder->setSymbolSizeTitle(QSize(infoFontPixelSize, infoFontPixelSize) * 3 / 2);
+  infoBuilder->setSymbolSizeTitle(QSize(infoFontPixelSize, infoFontPixelSize));
 
-  int simInfoFontPixelSize = ui->textBrowserAircraftInfo->fontMetrics().height();
-  infoBuilder->setSymbolSizeVehicle(QSize(simInfoFontPixelSize, simInfoFontPixelSize) * 3 / 2);
-}
-
-/* Set font size in text edit based on percent of original size */
-void InfoController::setTextEditFontSize(QTextEdit *textEdit, float origSize, int percent)
-{
-  QFont f = textEdit->font();
-  float newSize = origSize * percent / 100.f;
-  if(newSize > 0.1f)
-  {
-    f.setPointSizeF(newSize);
-    textEdit->setFont(f);
-  }
+  infoFontPixelSize = atools::roundToInt(QFontMetricsF(ui->textBrowserAircraftInfo->font()).height() * 1.4);
+  infoBuilder->setSymbolSizeVehicle(QSize(infoFontPixelSize, infoFontPixelSize));
 }
 
 QStringList InfoController::getAirportTextFull(const QString& ident) const

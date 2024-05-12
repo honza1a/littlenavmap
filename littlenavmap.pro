@@ -264,7 +264,7 @@ SOURCES += \
   src/app/dataexchange.cpp \
   src/app/navapp.cpp \
   src/common/abstractinfobuilder.cpp \
-  src/common/aircrafttrack.cpp \
+  src/common/aircrafttrail.cpp \
   src/common/airportfiles.cpp \
   src/common/constants.cpp \
   src/common/coordinateconverter.cpp \
@@ -353,7 +353,7 @@ SOURCES += \
   src/mappainter/mappainterroute.cpp \
   src/mappainter/mappaintership.cpp \
   src/mappainter/mappaintertop.cpp \
-  src/mappainter/mappaintertrack.cpp \
+  src/mappainter/mappaintertrail.cpp \
   src/mappainter/mappainteruser.cpp \
   src/mappainter/mappaintervehicle.cpp \
   src/mappainter/mappainterweather.cpp \
@@ -463,7 +463,7 @@ HEADERS  += \
   src/app/dataexchange.h \
   src/app/navapp.h \
   src/common/abstractinfobuilder.h \
-  src/common/aircrafttrack.h \
+  src/common/aircrafttrail.h \
   src/common/airportfiles.h \
   src/common/constants.h \
   src/common/coordinateconverter.h \
@@ -553,7 +553,7 @@ HEADERS  += \
   src/mappainter/mappainterroute.h \
   src/mappainter/mappaintership.h \
   src/mappainter/mappaintertop.h \
-  src/mappainter/mappaintertrack.h \
+  src/mappainter/mappaintertrail.h \
   src/mappainter/mappainteruser.h \
   src/mappainter/mappaintervehicle.h \
   src/mappainter/mappainterweather.h \
@@ -805,7 +805,7 @@ unix:!macx {
   exists($$DATABASE_BASE) : deploy.commands += cp -Rvf $$DATABASE_BASE $$DEPLOY_DIR &&
   exists($$HELP_BASE) : deploy.commands += cp -Rvf $$HELP_BASE/* $$DEPLOY_DIR/help &&
   deploy.commands += cp -vf $$PWD/desktop/\"Little Navmap Portable Linux.sh\" $$DEPLOY_DIR/\"Little Navmap Portable.sh\" &&
-  deploy.commands += cp -vf $$PWD/desktop/qt.conf $$DEPLOY_DIR &&
+  deploy.commands += cp -vf $$PWD/desktop/linux-qt.conf $$DEPLOY_DIR/qt.conf &&
   deploy.commands += cp -vf $$PWD/CHANGELOG.txt $$DEPLOY_DIR &&
   deploy.commands += cp -vf $$PWD/README.txt $$DEPLOY_DIR &&
   deploy.commands += cp -vf $$PWD/LICENSE.txt $$DEPLOY_DIR &&
@@ -938,6 +938,7 @@ win32 {
   deploy.commands += xcopy $$p($$PWD/README.txt) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME) &&
   deploy.commands += xcopy $$p($$PWD/LICENSE.txt) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME) &&
   deploy.commands += copy $$p($$PWD/desktop/Little Navmap Portable Win.cmd) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME/Little Navmap Portable.cmd) &&
+  deploy.commands += copy $$p($$PWD/desktop/win-qt.conf) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME/qt.conf) &&
   deploy.commands += xcopy $$p($$PWD/*.qm) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME/translations) &&
   deploy.commands += xcopy $$p($$ATOOLS_INC_PATH/../*.qm) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME/translations) &&
   exists($$DATABASE_BASE) : deploy.commands += xcopy /i /s /e /f /y $$p($$DATABASE_BASE) $$p($$DEPLOY_BASE/$$WIN_TARGET_NAME/little_navmap_db) &&

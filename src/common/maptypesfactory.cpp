@@ -23,23 +23,10 @@
 #include "io/binaryutil.h"
 #include "sql/sqlrecord.h"
 #include "fs/util/fsutil.h"
-#include "app/navapp.h"
-
-#include <cmath>
 
 using namespace atools::geo;
 using atools::sql::SqlRecord;
 using namespace map;
-
-MapTypesFactory::MapTypesFactory()
-{
-
-}
-
-MapTypesFactory::~MapTypesFactory()
-{
-
-}
 
 void MapTypesFactory::fillAirport(const SqlRecord& record, map::MapAirport& airport, bool complete, bool nav, bool xplane)
 {
@@ -187,6 +174,8 @@ map::MapAirportFlags MapTypesFactory::fillAirportFlags(const SqlRecord& record, 
 
   if(!overview)
   {
+    // The procedure flag is not accurate for mixed mode databases and is updated later on by
+    // AirportQuery::hasAirportProcedures()
     flags |= airportFlag(record, "num_approach", AP_PROCEDURE);
     flags |= airportFlag(record, "num_runway_light", AP_LIGHT);
     flags |= airportFlag(record, "num_runway_end_ils", AP_ILS);
@@ -394,8 +383,8 @@ void MapTypesFactory::fillLogbookEntry(const atools::sql::SqlRecord& rec, MapLog
       obj.travelTimeSimHours = 0.f;
   }
 
-  obj.perfFile = rec.valueStr("performance_file");
-  obj.routeFile = rec.valueStr("flightplan_file");
+  obj.performanceFile = atools::nativeCleanPath(rec.valueStr("performance_file"));
+  obj.routeFile = atools::nativeCleanPath(rec.valueStr("flightplan_file"));
 
   if(obj.departurePos.isValid() && obj.destinationPos.isValid())
     obj.position = Line(obj.departurePos, obj.destinationPos).boundingRect().getCenter();
@@ -749,7 +738,7 @@ void MapTypesFactory::fillParking(const SqlRecord& record, map::MapParking& park
   if(parking.number == -1)
   {
     // Look at name components
-    QStringList texts = parking.name.split(" ");
+    const QStringList texts = parking.name.split(" ");
     QStringList textsShort;
     bool ok = false;
     for(const QString& txt : texts)
@@ -812,7 +801,14 @@ void MapTypesFactory::fillAirspace(const SqlRecord& record, map::MapAirspace& ai
   airspace.name = record.valueStr(airspace.isOnline() ? "callsign" : "name");
   airspace.comType = record.valueStr("com_type");
 
-  for(const QString& str : record.valueStr("com_frequency", QString()).split("&"))
+  QString comCol;
+  if(record.contains("com_frequency"))
+    comCol = "com_frequency";
+  else if(record.contains("frequency"))
+    comCol = "frequency";
+
+  const QStringList split = record.valueStr(comCol, QString()).split("&");
+  for(const QString& str : split)
   {
     bool ok;
     int frequency = str.toInt(&ok);

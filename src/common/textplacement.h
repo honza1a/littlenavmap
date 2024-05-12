@@ -64,7 +64,15 @@ public:
   void drawTextAlongLines();
   void clearLineTextData();
 
-  void drawTextAlongOneLine(QString text, float bearing, const QPointF& textCoord, float textLineLength) const;
+  /* Side overrides all object set values like setTextOnLineCenter().
+   * Position when looking from p1 to p2 */
+  enum Side
+  {
+    NONE, LEFT, RIGHT, CENTER
+  };
+
+  void drawTextAlongOneLine(QString text, float bearing, const QPointF& textCoord, float textLineLength,
+                            TextPlacement::Side side = NONE, float offset = 2.f) const;
 
   /* Find text position along a great circle route
    *  @param x,y resulting text position
@@ -73,7 +81,7 @@ public:
    *  @param distanceMeter distance between points
    *  @param maxPoints Maximum number of points to sample
    */
-  bool findTextPos(const atools::geo::Line& line, float distanceMeter, float textWidth, float textHeight, int maxPoints, int& x, int& y,
+  bool findTextPos(const atools::geo::Line& line, float distanceMeter, float textWidth, float textHeight, int maxPoints, float& x, float& y,
                    float *bearing) const;
 
   /* Bit array indicating which start point is visible or not.  Filled by calculateTextAlongLines */
@@ -157,7 +165,7 @@ public:
 private:
   bool findTextPosInternal(const atools::geo::Line& line, float distanceMeter, float textWidth, float textHeight, int numPoints,
                            bool allowPartial,
-                           int& x, int& y, float& bearing) const;
+                           float& x, float& y, float& bearing) const;
   int findClosestInternal(const QVector<int>& fullyVisibleValid, const QVector<int>& pointsIdxValid, const QPolygonF& points,
                           const QVector<QPointF>& neighbors) const;
 

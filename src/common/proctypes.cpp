@@ -102,8 +102,8 @@ void initTranslateableTexts()
       {"MLS", QObject::tr("MLS")},
 
       /* User defined approach procedure */
-      {"CUSTOM", QObject::tr("Approach")},
-      {"CUSTOMDEPART", QObject::tr("Departure")}
+      {atools::fs::pln::APPROACH_TYPE_CUSTOM, QObject::tr("Approach")},
+      {atools::fs::pln::SID_TYPE_CUSTOM, QObject::tr("Departure")}
     });
 
   approachLegTypeToStr = QHash<ProcedureLegType, QString>(
@@ -361,9 +361,17 @@ QStringList restrictionText(const MapProcedureLeg& procedureLeg)
     restrictions.append(proc::speedRestrictionTextShort(procedureLeg.speedRestriction));
 
   if(procedureLeg.isVerticalAngleValid())
-    restrictions.append(QObject::tr("%L1°").arg(procedureLeg.verticalAngle, 0, 'g', 3));
+    restrictions.append(proc::vertRestrictionText(procedureLeg));
 
   return restrictions;
+}
+
+QString vertRestrictionText(const MapProcedureLeg& procedureLeg)
+{
+  if(procedureLeg.isVerticalAngleValid())
+    return QObject::tr("%L1°").arg(procedureLeg.verticalAngle, 0, 'g', 3);
+
+  return QString();
 }
 
 QString altRestrictionText(const MapAltRestriction& restriction)
@@ -549,7 +557,7 @@ QDebug operator<<(QDebug out, const MapProcedureLegs& legs)
 
   out << "approachType" << legs.type
       << "approachSuffix" << legs.suffix
-      << "approachFixIdent" << legs.approachFixIdent
+      << "approachFixIdent" << legs.procedureFixIdent
       << "approachArincName" << legs.arincName
       << "transitionType" << legs.transitionType
       << "transitionFixIdent" << legs.transitionFixIdent
@@ -644,6 +652,20 @@ float MapProcedureLeg::legTrueCourse() const
   return map::INVALID_COURSE_VALUE;
 }
 
+MapProcedureTypes MapProcedureLegs::getProcedureTypeBase(MapProcedureTypes procType)
+{
+  if(procType.testFlag(proc::PROCEDURE_SID_TRANSITION))
+    return proc::PROCEDURE_SID;
+
+  if(procType.testFlag(proc::PROCEDURE_STAR_TRANSITION))
+    return proc::PROCEDURE_STAR;
+
+  if(procType.testFlag(proc::PROCEDURE_TRANSITION) || procType.testFlag(proc::PROCEDURE_MISSED))
+    return proc::PROCEDURE_APPROACH;
+
+  return procType;
+}
+
 bool MapProcedureLeg::isFinalApproachFix() const
 {
   return proc::specialType(arincDescrCode) == proc::FAF;
@@ -736,52 +758,6 @@ atools::geo::LineString MapProcedureLegs::buildGeometry() const
   return retval;
 }
 
-MapProcedureLeg& MapProcedureLegs::atInternal(int i)
-{
-  if(isDeparture())
-  {
-    if(i < procedureLegs.size())
-      return procedureLegs[apprIdx(i)];
-    else
-      return transitionLegs[transIdx(i)];
-  }
-  else
-  {
-    if(i < transitionLegs.size())
-      return transitionLegs[transIdx(i)];
-    else
-      return procedureLegs[apprIdx(i)];
-  }
-}
-
-const MapProcedureLeg& MapProcedureLegs::atInternalConst(int i) const
-{
-  if(isDeparture())
-  {
-    if(i < procedureLegs.size())
-      return procedureLegs[apprIdx(i)];
-    else
-      return transitionLegs[transIdx(i)];
-  }
-  else
-  {
-    if(i < transitionLegs.size())
-      return transitionLegs[transIdx(i)];
-    else
-      return procedureLegs[apprIdx(i)];
-  }
-}
-
-int MapProcedureLegs::apprIdx(int i) const
-{
-  return isDeparture() ? i : i - transitionLegs.size();
-}
-
-int MapProcedureLegs::transIdx(int i) const
-{
-  return isDeparture() ? i - procedureLegs.size() : i;
-}
-
 void MapProcedureLegs::clearProcedure()
 {
   mapType &= ~proc::PROCEDURE_APPROACH;
@@ -790,7 +766,7 @@ void MapProcedureLegs::clearProcedure()
   type.clear();
   suffix.clear();
   arincName.clear();
-  approachFixIdent.clear();
+  procedureFixIdent.clear();
   runwayEnd = map::MapRunwayEnd();
 }
 
@@ -1017,7 +993,7 @@ QString procedureLegsText(const proc::MapProcedureLegs& legs, proc::MapProcedure
                         QObject::tr("Missed ") : QObject::tr("Approach "))).
                    arg(legs.displayType()).
                    arg(legs.suffix.isEmpty() ? QString() : (QObject::tr("-") + legs.suffix)).
-                   arg(legs.approachFixIdent);
+                   arg(legs.procedureFixIdent);
 
         // Add transition text if type from related leg is a transitionn
         if(procType.testFlag(proc::PROCEDURE_TRANSITION) && legs.mapType.testFlag(proc::PROCEDURE_TRANSITION))
@@ -1028,13 +1004,13 @@ QString procedureLegsText(const proc::MapProcedureLegs& legs, proc::MapProcedure
     {
       // SID or STAR with respective transitions =================================
       if(legs.mapType.testFlag(proc::PROCEDURE_STAR_TRANSITION) && procType.testFlag(proc::PROCEDURE_STAR_TRANSITION))
-        procText = QObject::tr("STAR %1.%2").arg(legs.approachFixIdent).arg(legs.transitionFixIdent);
+        procText = QObject::tr("STAR %1.%2").arg(legs.procedureFixIdent).arg(legs.transitionFixIdent);
       else if(legs.mapType.testFlag(proc::PROCEDURE_SID_TRANSITION) && procType.testFlag(proc::PROCEDURE_SID_TRANSITION))
-        procText = QObject::tr("SID %1.%2").arg(legs.approachFixIdent).arg(legs.transitionFixIdent);
+        procText = QObject::tr("SID %1.%2").arg(legs.procedureFixIdent).arg(legs.transitionFixIdent);
       else if(legs.mapType.testFlag(proc::PROCEDURE_STAR))
-        procText = QObject::tr("STAR %1").arg(legs.approachFixIdent);
+        procText = QObject::tr("STAR %1").arg(legs.procedureFixIdent);
       else if(legs.mapType.testFlag(proc::PROCEDURE_SID))
-        procText = QObject::tr("SID %1").arg(legs.approachFixIdent);
+        procText = QObject::tr("SID %1").arg(legs.procedureFixIdent);
     }
   }
 
@@ -1230,50 +1206,30 @@ bool procedureLegFrom(ProcedureLegType type)
     });
 }
 
-QString  procedureTextSuffixDeparture(const Route& route, const map::MapAirport& airport, bool& disable)
+QString  procedureTextSuffixDepartDest(const Route& route, const map::MapAirport& airport, bool *disable)
 {
-  bool departure = false, destination = false, alternate = false;
-  proc::procedureFlags(route, &airport, &departure, &destination, &alternate);
-
   QString text;
   if(airport.isValid())
   {
-    if(departure)
-      text = QObject::tr(" (is departure)");
-    else if(destination)
-      text = QObject::tr(" (is destination)");
-    else if(alternate)
-      text = QObject::tr(" (is alternate)");
+    bool departure = false, destination = false, alternate = false;
+    proc::procedureFlags(route, &airport, &departure, &destination, &alternate);
 
-    disable = false;
-  }
-  else
-    disable = true;
-  return text;
-}
-
-QString  procedureTextSuffixDestination(const Route& route, const map::MapAirport& airport, bool& disable)
-{
-  bool departure = false, destination = false, alternate = false;
-  proc::procedureFlags(route, &airport, &departure, &destination, &alternate);
-
-  QString text;
-  if(airport.isValid())
-  {
     if(destination)
       text = QObject::tr(" (is destination)");
     else if(departure)
       text = QObject::tr(" (is departure)");
     else if(alternate)
       text = QObject::tr(" (is alternate)");
-    disable = false;
+
+    if(disable != nullptr)
+      *disable = false;
   }
-  else
-    disable = true;
+  else if(disable != nullptr)
+    *disable = true;
   return text;
 }
 
-QString  procedureTextSuffixAlternate(const Route& route, const map::MapAirport& airport, bool& disable)
+QString  procedureTextSuffixAlternate(const Route& route, const map::MapAirport& airport, bool *disable)
 {
   bool departure = false, destination = false, alternate = false;
   proc::procedureFlags(route, &airport, &departure, &destination, &alternate);
@@ -1283,19 +1239,85 @@ QString  procedureTextSuffixAlternate(const Route& route, const map::MapAirport&
   {
     if(destination)
     {
-      disable = true;
+      if(disable != nullptr)
+        *disable = true;
       text = QObject::tr(" (is destination)");
     }
     else if(departure)
       text = QObject::tr(" (is departure)");
     else if(alternate)
     {
-      disable = true;
+      if(disable != nullptr)
+        *disable = true;
       text = QObject::tr(" (is alternate)");
     }
   }
-  else
-    disable = true;
+  else if(disable != nullptr)
+    *disable = true;
+  return text;
+}
+
+QString  procedureTextSuffixDirectTo(const Route& route, int legIndex, const map::MapAirport *airport, bool *disable)
+{
+  QString text;
+  int activeLegIndex = route.getActiveLegIndex();
+  bool disableItem = false;
+#ifdef DEBUG_INFORMATION
+  qDebug() << Q_FUNC_INFO << "legIndex" << legIndex << "activeLegIndex" << activeLegIndex;
+#endif
+  if(!NavApp::isConnectedAndAircraft())
+  {
+    disableItem = true;
+    text = QObject::tr(" (not connected to simulator)");
+  }
+  else if((activeLegIndex == -1 || activeLegIndex == map::INVALID_INDEX_VALUE) && route.getSizeWithoutAlternates() > 1)
+  {
+    // Check only for valid plan having legs
+    // Active is required for PPOS - but only if flight plan has valid legs
+    disableItem = true;
+    text = QObject::tr(" (no active flight plan segment)");
+  }
+  else if(legIndex != -1 && legIndex < activeLegIndex && route.getSizeWithoutAlternates() > 1)
+  {
+    // Check only for valid plan having legs
+    // Do not allow to direct to back if leg index is given
+    // Or circling with single airport - allow only another airport or navaid
+    disableItem = true;
+    text = QObject::tr(" (past active)");
+  }
+  else if(legIndex != -1 && legIndex < map::INVALID_INDEX_VALUE)
+  {
+    // Index for route leg given ======================================
+    bool containsProc, moveDownTouchesProc, moveUpTouchesProc;
+    route.selectionFlagsProcedures(QList<int>({legIndex}), containsProc, moveDownTouchesProc, moveUpTouchesProc);
+
+    // Airport given - try to find "is destination" and other texts
+    if(airport != nullptr && airport->isValid())
+      text = procedureTextSuffixDepartDest(route, *airport);
+
+    if(route.getSizeWithoutAlternates() > 1)
+    {
+      // Legs and intermediate waypoints present
+      bool procOk = (containsProc && !moveUpTouchesProc) || // First point of approach or arrival procedure
+                    !containsProc; // Selected leg is no procedure
+      bool departOk = legIndex > 0 || activeLegIndex > 0; // Back to departure only if active after direct to leg
+
+      disableItem = !procOk || !departOk;
+      if(disableItem)
+        text = QObject::tr(" (is procedure)");
+      else
+      {
+
+        if(text.isEmpty())
+          // No specific text but it is still a part of the plan - can be waypoint or other
+          text = QObject::tr(" (flight plan)");
+      }
+    }
+  }
+
+  if(disable != nullptr)
+    *disable = disableItem;
+
   return text;
 }
 

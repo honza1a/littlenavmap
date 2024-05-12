@@ -82,6 +82,7 @@ enum MenuActionType
   PROCEDUREADD, /* Add airport procedures into plan */
   CUSTOMAPPROACH, /* Create custom procedure */
   CUSTOMDEPARTURE, /* Create custom procedure */
+  DIRECT, /* Direct to waypoint or position */
   MEASURE, /* GC measmurement line */
   NAVAIDRANGE, /* Show range ring for radio navaid */
   PATTERN, /* Airport traffic pattern */
@@ -94,6 +95,7 @@ enum MenuActionType
   APPENDROUTE, /* Append airport, navid or position to end of flight plan */
   DELETEROUTEWAYPOINT, /* Remove flight plan leg */
   EDITROUTEUSERPOINT, /* Edit user defined route waypoint or remarks for any flight plan point */
+  CONVERTPROCEDURE, /* Convert procedure to waypoints */
   MARKAIRPORTADDON, /* Mark airport as add-on */
   USERPOINTADD, /* Add userpoint (in sub-menu) */
   USERPOINTEDIT, /* Edit userpoint (in sub-menu) */
@@ -101,6 +103,7 @@ enum MenuActionType
   USERPOINTDELETE, /* Remove userpoint (in sub-menu) */
   LOGENTRYEDIT, /* Edit logbook entry on preview */
   SHOWINSEARCH, /* Show objects in search window with filter and selection */
+  SHOWINROUTE, /* Select legs in flight plan table */
   REMOVEUSER /* Remove traffic pattern, hold, etc. */
 };
 
@@ -178,10 +181,11 @@ private:
   void insertProcedureAddMenu(QMenu& menu);
   void insertCustomApproachMenu(QMenu& menu);
   void insertCustomDepartureMenu(QMenu& menu);
-  void insertRemoveMarkMenu(QMenu& menu);
+  void insertDirectToMenu(QMenu& menu);
 
   // ----
   void insertMeasureMenu(QMenu& menu);
+  void insertRemoveMarkMenu(QMenu& menu);
 
   // ui->actionMapHideDistanceMarker
 
@@ -212,6 +216,8 @@ private:
   void insertDeleteRouteWaypointMenu(QMenu& menu);
   void insertEditRouteUserpointMenu(QMenu& menu);
 
+  void insertConvertProcedureMenu(QMenu& menu);
+
   void insertMarkAddonAirportMenu(QMenu& menu);
 
   // ---- sub-menu
@@ -224,12 +230,13 @@ private:
   void insertLogEntryEdit(QMenu& menu);
 
   // ----
+  void insertShowInRouteMenu(QMenu& menu);
   void insertShowInSearchMenu(QMenu& menu);
 
   // ---- if full screen
   // ui->actionShowFullscreenMap // connected by main window
 
-  // ---- sub-menu "More"
+  // ---- sub-menu "More" - used in MapWidget::contextMenuEvent()
   // ui->actionMapCopyCoordinates
   // ui->actionMapSetMark
   // ui->actionMapSetHome

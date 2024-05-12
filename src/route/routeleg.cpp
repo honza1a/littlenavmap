@@ -162,7 +162,7 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
   if(region == "KK" || region == "ZZ") // Invalid route finder region
     region.clear();
 
-  map::MapResult mapobjectResult;
+  map::MapResult result;
   switch(flightplanEntry->getWaypointType())
   {
     // ====================== Create by totally unknown type with probably invalid position
@@ -183,13 +183,12 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
         else if(prevLeg != nullptr && !flightplanEntry->getAirway().isEmpty())
         {
           // Look for navaid at an airway
-          airwayQuery->getWaypointsForAirway(mapobjectResult.waypoints,
-                                             flightplanEntry->getAirway(), flightplanEntry->getIdent());
-          maptools::sortByDistance(mapobjectResult.waypoints, prevLeg->getPosition());
-          if(mapobjectResult.hasWaypoints())
+          airwayQuery->getWaypointsForAirway(result.waypoints, flightplanEntry->getAirway(), flightplanEntry->getIdent());
+          maptools::sortByDistance(result.waypoints, prevLeg->getPosition());
+          if(result.hasWaypoints())
           {
             // Use navaid at airway
-            assignIntersection(mapobjectResult, flightplanEntry);
+            assignIntersection(result, flightplanEntry);
             validWaypoint = true;
           }
           else
@@ -209,11 +208,11 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
     case atools::fs::pln::entry::AIRPORT:
       // Set alternate flight also for probably invalid legs to allow correct sorting
       alternate = flightplanEntry->isAlternate();
-      mapQuery->getMapObjectByIdent(mapobjectResult, map::AIRPORT, flightplanEntry->getIdent(), QString(),
+      mapQuery->getMapObjectByIdent(result, map::AIRPORT, flightplanEntry->getIdent(), QString(),
                                     QString(), flightplanEntry->getPosition(), MAX_AIRPORT_DISTANCE_METER);
-      if(!mapobjectResult.airports.isEmpty())
+      if(result.hasAirports())
       {
-        assignAirport(mapobjectResult, flightplanEntry);
+        assignAirport(result, flightplanEntry);
 
         validWaypoint = true;
 
@@ -223,11 +222,11 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
 
         // Resolve parking if first airport ==============================
         QString name = flightplan->getDepartureParkingName().trimmed();
-        QList<map::MapParking> parkings;
         if(!name.isEmpty() && prevLeg == nullptr)
         {
           // There is a parking name and this is the departure airport
           bool translateName = false;
+          QList<map::MapParking> parkings;
           if(NavApp::isAirportDatabaseXPlane(false /* navdata */) || name.endsWith(PARKING_NO_NUMBER))
           {
             // X-Plane style parking - name only ======
@@ -288,30 +287,31 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
 
             flightplan->setDepartureParkingType(atools::fs::pln::PARKING);
           }
+          // End of parking detection
         } // if(!name.isEmpty() && prevLeg == nullptr)
       }
       break;
 
     // =============================== Navaid waypoint
     case atools::fs::pln::entry::WAYPOINT:
-      mapQuery->getMapObjectByIdent(mapobjectResult, map::WAYPOINT | map::AIRPORT,
+      mapQuery->getMapObjectByIdent(result, map::WAYPOINT | map::AIRPORT,
                                     flightplanEntry->getIdent(), region, /* region is ignored for airports */
                                     QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(mapobjectResult.waypoints.isEmpty())
+      if(!result.hasWaypoints())
         // Nothing found for waypoints - try again without region - result is appended
-        mapQuery->getMapObjectByIdent(mapobjectResult, map::WAYPOINT, flightplanEntry->getIdent(), QString(),
+        mapQuery->getMapObjectByIdent(result, map::WAYPOINT, flightplanEntry->getIdent(), QString(),
                                       QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(!mapobjectResult.waypoints.isEmpty())
+      if(result.hasWaypoints())
       {
-        assignIntersection(mapobjectResult, flightplanEntry);
+        assignIntersection(result, flightplanEntry);
         validWaypoint = true;
       }
-      else if(!mapobjectResult.airports.isEmpty())
+      else if(result.hasAirports())
       {
         // FSC saves airports in the flight plan wrongly as intersections
-        assignAirport(mapobjectResult, flightplanEntry);
+        assignAirport(result, flightplanEntry);
         validWaypoint = true;
       }
       else if(!atools::fs::util::isValidIdent(flightplanEntry->getIdent()))
@@ -325,34 +325,34 @@ void RouteLeg::createFromDatabaseByEntry(int entryIndex, const RouteLeg *prevLeg
 
     // =============================== Navaid VOR
     case atools::fs::pln::entry::VOR:
-      mapQuery->getMapObjectByIdent(mapobjectResult, map::VOR, flightplanEntry->getIdent(), region,
+      mapQuery->getMapObjectByIdent(result, map::VOR, flightplanEntry->getIdent(), region,
                                     QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(mapobjectResult.vors.isEmpty())
+      if(!result.hasVor())
         // Nothing found for VOR - try again without region
-        mapQuery->getMapObjectByIdent(mapobjectResult, map::VOR, flightplanEntry->getIdent(), QString(),
+        mapQuery->getMapObjectByIdent(result, map::VOR, flightplanEntry->getIdent(), QString(),
                                       QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(!mapobjectResult.vors.isEmpty())
+      if(result.hasVor())
       {
-        assignVor(mapobjectResult, flightplanEntry);
+        assignVor(result, flightplanEntry);
         validWaypoint = true;
       }
       break;
 
     // =============================== Navaid NDB
     case atools::fs::pln::entry::NDB:
-      mapQuery->getMapObjectByIdent(mapobjectResult, map::NDB, flightplanEntry->getIdent(), region,
+      mapQuery->getMapObjectByIdent(result, map::NDB, flightplanEntry->getIdent(), region,
                                     QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(mapobjectResult.ndbs.isEmpty())
+      if(!result.hasNdb())
         // Nothing found for NDB - try again without region
-        mapQuery->getMapObjectByIdent(mapobjectResult, map::NDB, flightplanEntry->getIdent(), QString(),
+        mapQuery->getMapObjectByIdent(result, map::NDB, flightplanEntry->getIdent(), QString(),
                                       QString(), flightplanEntry->getPosition(), MAX_WAYPOINT_DISTANCE_METER);
 
-      if(!mapobjectResult.ndbs.isEmpty())
+      if(result.hasNdb())
       {
-        assignNdb(mapobjectResult, flightplanEntry);
+        assignNdb(result, flightplanEntry);
         validWaypoint = true;
       }
       break;
@@ -412,7 +412,9 @@ void RouteLeg::updateDepartAndDestAltitude(atools::fs::pln::FlightplanEntry *fli
   atools::fs::pln::entry::WaypointType wptype = flightplanEntry->getWaypointType();
   if(wptype == atools::fs::pln::entry::USER || wptype == atools::fs::pln::entry::WAYPOINT || // These never have altitude
      // VOR and NDB in MSFS have no altitude assigned
-     ((wptype == atools::fs::pln::entry::VOR || wptype == atools::fs::pln::entry::NDB) && atools::almostEqual(getAltitude(), 0.f)))
+     ((wptype == atools::fs::pln::entry::VOR || wptype == atools::fs::pln::entry::NDB) && atools::almostEqual(getAltitude(), 0.f)) ||
+     // Fix altitude for invalid airports
+     type == map::INVALID)
     flightplanEntry->setAltitude(NavApp::getElevationProvider()->getElevationFt(getFlightplanEntry()->getPosition()));
   else
     flightplanEntry->setAltitude(getAltitude());
@@ -553,7 +555,7 @@ int RouteLeg::getRange() const
   return -1;
 }
 
-QString RouteLeg::getMapObjectTypeName() const
+QString RouteLeg::getMapTypeName() const
 {
   if(type == map::INVALID)
     return tr("Invalid");
@@ -577,7 +579,7 @@ QString RouteLeg::getMapObjectTypeName() const
     return EMPTY_STRING;
 }
 
-QString RouteLeg::getMapObjectTypeNameShort() const
+QString RouteLeg::getMapTypeNameShort() const
 {
   if(type == map::INVALID)
     return tr("Invalid");
@@ -601,12 +603,12 @@ QString RouteLeg::getMapObjectTypeNameShort() const
 
 QString RouteLeg::getDisplayText(int elideName) const
 {
-  if(getMapObjectType() == map::AIRPORT)
+  if(getMapType() == map::AIRPORT)
     return tr("%1 (%2)").arg(atools::elideTextShort(getName(), elideName)).arg(airport.displayIdent());
   else
   {
     QStringList texts;
-    texts << getMapObjectTypeNameShort() << atools::elideTextShort(getName(), elideName)
+    texts << getMapTypeNameShort() << atools::elideTextShort(getName(), elideName)
           << (getIdent().isEmpty() ? QString() : tr("(%1)").arg(getIdent()));
     texts.removeAll(QString());
     return texts.join(tr(" "));
@@ -658,8 +660,8 @@ QStringList RouteLeg::buildLegText(float distance, float courseMag, float course
   bool addMagCourse = courseMag < map::INVALID_COURSE_VALUE;
   bool addTrueCourse = courseTrue < map::INVALID_COURSE_VALUE;
 
-  QString courseMagStr = QString::number(atools::geo::normalizeCourse(courseMag), 'f', 0);
-  QString courseTrueStr = QString::number(atools::geo::normalizeCourse(courseTrue), 'f', 0);
+  QString courseMagStr = QString::number(normalizeCourse(courseMag), 'f', 0);
+  QString courseTrueStr = QString::number(normalizeCourse(courseTrue), 'f', 0);
 
   if(addMagCourse && addTrueCourse && courseMagStr == courseTrueStr)
     // True and mag course are equal - combine
@@ -673,6 +675,16 @@ QStringList RouteLeg::buildLegText(float distance, float courseMag, float course
   }
 
   return texts;
+}
+
+float RouteLeg::getGeometryEndCourse() const
+{
+  return geometry.isPoint() ? map::INVALID_COURSE_VALUE : opposedCourseDeg(geometry.getEndCourse());
+}
+
+float RouteLeg::getGeometryStartCourse() const
+{
+  return geometry.isPoint() ? map::INVALID_COURSE_VALUE : geometry.getStartCourse();
 }
 
 float RouteLeg::getCourseStartMag() const
@@ -775,7 +787,8 @@ float RouteLeg::getAltitude() const
   else if(!procedureLeg.displayText.isEmpty())
     return 0.f;
   else if(type == map::INVALID)
-    return 0.f;
+    // Set in entry for invalid departure and/or destination
+    return getFlightplanEntry().getAltitude();
   else if(getFlightplanEntry().getWaypointType() == atools::fs::pln::entry::USER)
     return getFlightplanEntry().getAltitude();
   else if(getFlightplanEntry().getWaypointType() == atools::fs::pln::entry::UNKNOWN)
@@ -818,7 +831,7 @@ QString RouteLeg::getDisplayIdent(bool useIata) const
     return getIdent();
 }
 
-QString RouteLeg::getComment() const
+const QString& RouteLeg::getComment() const
 {
   return getFlightplanEntry().getComment();
 }
@@ -885,7 +898,7 @@ void RouteLeg::getMagTrueRealCourse(float& courseMag, float& courseTrue, bool *p
   }
 }
 
-QString RouteLeg::getRegion() const
+const QString& RouteLeg::getRegion() const
 {
   if(airport.isValid())
     return airport.region;
@@ -903,7 +916,7 @@ QString RouteLeg::getRegion() const
   return EMPTY_STRING;
 }
 
-QString RouteLeg::getName() const
+const QString& RouteLeg::getName() const
 {
   if(type == map::INVALID)
     return EMPTY_STRING;
@@ -940,12 +953,12 @@ QString RouteLeg::getFrequencyOrChannel() const
     return getChannel();
 }
 
-QString RouteLeg::getChannel() const
+const QString& RouteLeg::getChannel() const
 {
   if(vor.isValid() && vor.tacan)
     return vor.channel;
   else
-    return QString();
+    return EMPTY_STRING;
 }
 
 int RouteLeg::getFrequency() const
@@ -996,12 +1009,12 @@ bool RouteLeg::isApproachPoint() const
          (procedureLeg.geometry.isPoint() || procedureLeg.isInitialFix() || procedureLeg.type == proc::START_OF_PROCEDURE);
 }
 
-bool RouteLeg::isAirwaySetAndInvalid(float altitudeFt, QStringList *errors, bool *trackError) const
+bool RouteLeg::isAirwaySetAndInvalid(float minAltLegFt, float maxAltLegFt, QStringList *errors, bool *trackError) const
 {
   bool invalid = true;
   if(airway.isValid())
   {
-    QString legText = tr("Leg to \"%1\" violates restriction for airway \"%2\":").arg(getDisplayIdent()).arg(getAirwayName());
+    const QString legText = tr("Leg to \"%1\" violates restriction for airway \"%2\":").arg(getDisplayIdent()).arg(getAirwayName());
 
     // Set and valid - check direction
     if(airway.direction == map::DIR_BOTH)
@@ -1017,23 +1030,17 @@ bool RouteLeg::isAirwaySetAndInvalid(float altitudeFt, QStringList *errors, bool
     if(errors != nullptr && invalid)
       errors->append(legText % tr("Wrong direction in one-way segment."));
 
-    if(altitudeFt < map::INVALID_ALTITUDE_VALUE)
+    // Check altitude only if valid
+    if(minAltLegFt < map::INVALID_ALTITUDE_VALUE && maxAltLegFt < map::INVALID_ALTITUDE_VALUE)
     {
       // Use a buffer for comparison to avoid rounding errors
-      if(altitudeFt < airway.minAltitude - 10.f)
+      if(maxAltLegFt < airway.minAltitude - 10.f || (airway.maxAltitude > 0 && minAltLegFt > airway.maxAltitude + 10.f))
       {
         invalid = true;
         if(errors != nullptr)
-          errors->append(legText % tr("Cruise altitude %1 is below minimum altitude of %2.").
-                         arg(Unit::altFeet(altitudeFt)).arg(Unit::altFeet(airway.minAltitude)));
-      }
-
-      if(airway.maxAltitude > 0 && altitudeFt > airway.maxAltitude + 10.f)
-      {
-        invalid = true;
-        if(errors != nullptr)
-          errors->append(legText % tr("Cruise altitude %1 is above maximum altitude of %2.").
-                         arg(Unit::altFeet(altitudeFt)).arg(Unit::altFeet(airway.maxAltitude)));
+          errors->append(legText % tr("Leg altitudes %1 to %2 are violating restriction. Airway: %3.").
+                         arg(Unit::altFeet(minAltLegFt, false /* addUnit */)).arg(Unit::altFeet(maxAltLegFt)).
+                         arg(map::airwayAltText(airway)));
       }
     }
 
@@ -1145,14 +1152,8 @@ void RouteLeg::assignRunwayOrHelipad(const QString& name)
   NavApp::getAirportQuerySim()->getStartByNameAndPos(start, airport.id, name, flightplan->getDepartureParkingPosition());
 
   if(!start.isValid() || start.position.distanceMeterTo(flightplan->getDepartureParkingPosition()) > MAX_PARKING_DIST_METER)
-  {
-    // Navigraph database has no start table
-
+    // Do not clear departure position in flight plan to allow the parking name to survive database switches
     qWarning() << Q_FUNC_INFO << "Found no start positions for" << name;
-    // Clear departure position in flight plan
-    flightplan->setDepartureParkingName(QString());
-    flightplan->setDepartureParkingType(atools::fs::pln::NO_POS);
-  }
   else
   {
     // Helicopter pad or runway name
@@ -1172,7 +1173,7 @@ QDebug operator<<(QDebug out, const RouteLeg& leg)
   out.noquote().nospace() << "RouteLeg["
                           << "id " << leg.getId()
                           << ", " << leg.getIdent()
-                          << ", " << leg.getMapObjectTypeName()
+                          << ", " << leg.getMapTypeName()
                           << ", distance " << leg.getDistanceTo()
                           << ", " << leg.getPosition()
                           << ", course start " << leg.getCourseStartMag() << "°M " << leg.getCourseStartTrue() << "°T"

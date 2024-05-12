@@ -61,6 +61,9 @@ QString formatMinutesHoursDaysLong(double timeHours);
 /* Format elapsed time to minutes and seconds */
 QString formatElapsed(const QElapsedTimer& timer);
 
+/* Locale dependent date time with seconds. Override results in "10/26/23 8:21:00 PM" */
+QString formatDateTimeSeconds(const QDateTime& datetime, bool overrideLocale);
+
 /* Format wind as string with pointer. Tail head and crosswind. */
 QString windInformation(float headWindKts, float crossWindKts, const QString& separator, bool addUnit = true);
 
@@ -74,13 +77,13 @@ QString windInformationTailHead(float headWindKts, bool addUnit = true);
 QString windInformationShort(int windDirectionDeg, float windSpeedKts, float runwayEndHeading);
 
 /* Get course or heading text with magnetic and/or true course depending on settings */
-QString courseText(float magCourse, float trueCourse, bool magBold = false, bool trueSmall = true, bool narrow = false,
+QString courseText(float magCourse, float trueCourse, bool magBold = false, bool magBig = false, bool trueSmall = true, bool narrow = false,
                    bool forceBoth = false);
 QString courseSuffix();
-QString courseTextFromMag(float magCourse, float magvar, bool magBold = false, bool trueSmall = true, bool narrow = false,
-                          bool forceBoth = false);
-QString courseTextFromTrue(float trueCourse, float magvar, bool magBold = false, bool trueSmall = true, bool narrow = false,
-                           bool forceBoth = false);
+QString courseTextFromMag(float magCourse, float magvar, bool magBold = false, bool magBig = false, bool trueSmall = true,
+                          bool narrow = false, bool forceBoth = false);
+QString courseTextFromTrue(float trueCourse, float magvar, bool magBold = false, bool magBig = false, bool trueSmall = true,
+                           bool narrow = false, bool forceBoth = false);
 QString courseTextNarrow(float magCourse, float trueCourse);
 
 } // namespace formatter

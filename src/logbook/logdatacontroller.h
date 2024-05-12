@@ -38,6 +38,10 @@ class ErrorHandler;
 class HelpHandler;
 }
 namespace fs {
+
+namespace gpx {
+struct GpxData;
+}
 namespace pln {
 class Flightplan;
 }
@@ -137,14 +141,16 @@ public:
   /* Update units */
   void optionsChanged();
 
+  void fontChanged(const QFont& font);
+  void styleChanged();
+
   /* Convert legacy logbook entries from userdata to the new logbook */
   void convertUserdata();
 
   /* Resets detection of flight */
   void resetTakeoffLandingDetection();
 
-  const QVector<atools::geo::LineString> *getTrackGeometry(int id);
-  const atools::geo::LineString *getRouteGeometry(int id);
+  const atools::fs::gpx::GpxData *getGpxData(int id);
 
   /* Clear caches */
   void preDatabaseLoad();
@@ -175,7 +181,7 @@ public:
 
 signals:
   /* Sent after database modification to update the search result table */
-  void refreshLogSearch(bool loadAll, bool keepSelection);
+  void refreshLogSearch(bool loadAll, bool keepSelection, bool force);
 
   /* Issue a redraw of the map */
   void logDataChanged();

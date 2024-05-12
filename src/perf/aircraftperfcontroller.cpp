@@ -68,8 +68,6 @@ AircraftPerfController::AircraftPerfController(MainWindow *parent)
   fuelFlowGroundspeedAverage = new atools::util::MovingAverageTime(10000);
 
   lastSimData = new atools::fs::sc::SimConnectData();
-  // Remember original font for resizing in options
-  infoFontPtSize = static_cast<float>(ui->textBrowserAircraftPerformanceReport->font().pointSizeF());
 
   QStringList paths({QApplication::applicationDirPath()});
   ui->textBrowserAircraftPerformanceReport->setSearchPaths(paths);
@@ -752,7 +750,7 @@ void AircraftPerfController::updateActionStates()
   ui->spinBoxAircraftPerformanceWindDirection->setEnabled(manualWind);
   ui->spinBoxAircraftPerformanceWindSpeed->setEnabled(manualWind);
   ui->spinBoxAircraftPerformanceWindAlt->setEnabled(manualWind);
-  atools::gui::util::showHideLayoutElements({ui->horizontalLayoutManWind}, manualWind, {});
+  atools::gui::util::showHideLayoutElements({ui->horizontalLayoutManWind}, {}, manualWind, true /* disable */);
 }
 
 void AircraftPerfController::updateReport()
@@ -1083,7 +1081,7 @@ void AircraftPerfController::fuelReport(atools::util::HtmlBuilder& html, bool pr
       {
         html.p();
         html.warning(tr("Possible problems found:")).br();
-        for(const QString& err : extraErrors)
+        for(const QString& err : qAsConst(extraErrors))
           html.warning(err).br();
         html.pEnd();
       }
@@ -1391,22 +1389,25 @@ void AircraftPerfController::restoreState()
   fileHistory->restoreState();
 
   // Load last used performance file or the one passed on the command line
-  QString perfFile;
-  fc::fromStartupProperties(NavApp::getStartupOptionsConst(), nullptr, nullptr, &perfFile);
-
-  if(perfFile.isEmpty() && OptionData::instance().getFlags() & opts::STARTUP_LOAD_PERF)
-    perfFile = settings.valueStr(lnm::AIRCRAFT_PERF_FILENAME);
-
-  if(!perfFile.isEmpty())
+  if(!NavApp::isSafeMode())
   {
-    QString message = atools::checkFileMsg(perfFile);
-    if(message.isEmpty())
-      loadFile(perfFile);
-    else
+    QString perfFile;
+    fc::fromStartupProperties(NavApp::getStartupOptionsConst(), nullptr, nullptr, &perfFile);
+
+    if(perfFile.isEmpty() && OptionData::instance().getFlags() & opts::STARTUP_LOAD_PERF)
+      perfFile = settings.valueStr(lnm::AIRCRAFT_PERF_FILENAME);
+
+    if(!perfFile.isEmpty())
     {
-      // No file or not readable
-      NavApp::closeSplashScreen();
-      QMessageBox::warning(mainWindow, QApplication::applicationName(), message);
+      QString message = atools::checkFileMsg(perfFile);
+      if(message.isEmpty())
+        loadFile(perfFile);
+      else
+      {
+        // No file or not readable
+        NavApp::closeSplashScreen();
+        QMessageBox::warning(mainWindow, QApplication::applicationName(), message);
+      }
     }
   }
 
@@ -1426,14 +1427,9 @@ void AircraftPerfController::optionsChanged()
 {
   Ui::MainWindow *ui = NavApp::getMainUi();
 
-  QFont f = ui->textBrowserAircraftPerformanceReport->font();
-  float newSize = infoFontPtSize * OptionData::instance().getGuiPerfReportTextSize() / 100.f;
-  if(newSize > 0.1f)
-  {
-    f.setPointSizeF(newSize);
-    ui->textBrowserAircraftPerformanceReport->setFont(f);
-    ui->textBrowserAircraftPerformanceCurrent->setFont(f);
-  }
+  int sizePercent = OptionData::instance().getGuiPerfReportTextSize();
+  atools::gui::setWidgetFontSize(ui->textBrowserAircraftPerformanceReport, sizePercent);
+  atools::gui::setWidgetFontSize(ui->textBrowserAircraftPerformanceCurrent, sizePercent);
 
   symbolSize = ui->textBrowserAircraftPerformanceReport->fontMetrics().height() * 4 / 3;
 

@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -74,7 +74,7 @@ public:
 
   atools::geo::Rect fromGdc(const Marble::GeoDataLatLonBox& coords) const;
   atools::geo::Pos fromGdc(const Marble::GeoDataCoordinates& coords) const;
-  atools::geo::LineString fromGdcStr(const Marble::GeoDataLineString& coords) const;
+  const atools::geo::LineString fromGdcStr(const Marble::GeoDataLineString& coords) const;
 
   /*
    * Convert world to screen coordinates
@@ -132,6 +132,21 @@ public:
   atools::geo::Pos sToW(const QPoint& point) const;
   atools::geo::Pos sToW(const QPointF& point) const;
 
+  /* Get screen polygons for given line string. Polygons are cleaned up from duplicates and split at anti-meridian.
+   * Free with releasePolygons() */
+  const QVector<QPolygonF *> createPolygons(const atools::geo::LineString& linestring, const QRectF& screenRect) const;
+  void releasePolygons(const QVector<QPolygonF *>& polygons) const;
+
+  const QVector<QPolygonF *> createPolylines(const atools::geo::LineString& linestring, const QRectF& screenRect) const;
+  void releasePolylines(const QVector<QPolygonF *>& polylines) const;
+
+  /*  Determines whether a geographical feature is big enough so that it should
+   * represent a single point on the screen. Additionally checks if feature bounding rect overlaps viewport. */
+  bool resolves(const Marble::GeoDataLatLonBox& box) const;
+  bool resolves(const Marble::GeoDataCoordinates& coord1, const Marble::GeoDataCoordinates& coord2) const;
+  bool resolves(const atools::geo::Rect& rect) const;
+  bool resolves(const atools::geo::Line& line) const;
+
   /* Shortcuts for more readable code */
   static Q_DECL_CONSTEXPR Marble::GeoDataCoordinates::Unit DEG = Marble::GeoDataCoordinates::Degree;
   static Q_DECL_CONSTEXPR Marble::GeoDataCoordinates::BearingType INITBRG = Marble::GeoDataCoordinates::InitialBearing;
@@ -139,6 +154,9 @@ public:
 
 private:
   bool wToSInternal(const Marble::GeoDataCoordinates& coords, double& x, double& y, const QSize& size, bool *isHidden) const;
+
+  const QVector<QPolygonF *> createPolygonsInternal(const atools::geo::LineString& linestring, const QRectF& screenRect) const;
+  const QVector<QPolygonF *> createPolylinesInternal(const atools::geo::LineString& linestring, const QRectF& screenRect) const;
 
   const Marble::ViewportParams *viewport;
 

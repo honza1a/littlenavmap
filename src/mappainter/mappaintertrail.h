@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright 2015-2020 Alexander Barthel alex@littlenavmap.org
+* Copyright 2015-2023 Alexander Barthel alex@littlenavmap.org
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -15,32 +15,23 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *****************************************************************************/
 
-#include "mappainter/mappaintertrack.h"
-#include "common/maptypes.h"
+#ifndef LITTLENAVMAP_MAPPAINTERTRACK_H
+#define LITTLENAVMAP_MAPPAINTERTRACK_H
 
-#include "util/paintercontextsaver.h"
+#include "mappainter/mappaintervehicle.h"
 
-#include <marble/GeoPainter.h>
-
-using atools::fs::sc::SimConnectAircraft;
-
-MapPainterTrack::MapPainterTrack(MapPaintWidget *mapWidget, MapScale *mapScale, PaintContext *paintContext)
-  : MapPainterVehicle(mapWidget, mapScale, paintContext)
+/*
+ * Draws the simulator user aircraft track
+ */
+class MapPainterTrail :
+  public MapPainterVehicle
 {
+public:
+  MapPainterTrail(MapPaintWidget *mapPaintWidget, MapScale *mapScale, PaintContext *paintContext);
+  virtual ~MapPainterTrail() override;
 
-}
+  virtual void render() override;
 
-MapPainterTrack::~MapPainterTrack()
-{
+};
 
-}
-
-void MapPainterTrack::render()
-{
-  if(!context->objectDisplayTypes.testFlag(map::AIRCRAFT_TRACK))
-    // If actions are unchecked return
-    return;
-
-  atools::util::PainterContextSaver(context->painter);
-  paintAircraftTrack();
-}
+#endif // LITTLENAVMAP_MAPPAINTERTRACK_H

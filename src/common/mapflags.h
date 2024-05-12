@@ -126,7 +126,9 @@ enum MapType : unsigned long long
   /* Procedure flags ================================  */
   PROCEDURE_POINT =      0x0000'2000'0000'0000, /* Type flag for map base and context menu */
 
-  // NEXT = 0x0000'8000'0000'0000
+  AIRCRAFT_TRAIL = 0x0000'8000'0000'0000, /* Simulator aircraft track.  */
+
+  // NEXT = 0x0001'0000'0000'0000
 
   /* =============================================================================================== */
   /* Pure visibiliy flags. Nothing is shown if not at least one of these is set */
@@ -150,6 +152,9 @@ enum MapType : unsigned long long
 
   /* All navaids ======================================== */
   NAV_ALL = VOR | NDB | WAYPOINT,
+
+  /* All flight plan related types ======================================== */
+  NAV_FLIGHTPLAN = NAV_ALL | AIRPORT | PROCEDURE_POINT | USERPOINTROUTE,
 
   /* All objects that have a magvar assigned */
   NAV_MAGVAR = AIRPORT | VOR | NDB | WAYPOINT,
@@ -183,9 +188,9 @@ enum MapDisplayType
 
   FLIGHTPLAN = 1 << 9, /* Flight plan */
   FLIGHTPLAN_TOC_TOD = 1 << 10, /* Top of climb and top of descent */
+  FLIGHTPLAN_ALTERNATE = 1 << 21, /* Alternate airport and lines in flightplan */
 
   GLS = 1 << 13, /* RNV approach, GLS approache or GBAS path - only display flag. Object is stored with type ILS. */
-  AIRCRAFT_TRACK = 1 << 17, /* Simulator aircraft track. Not an object type. */
 
   AIRCRAFT_ENDURANCE = 1 << 18, /* Range ring for current aircraft endurance. */
 
@@ -215,6 +220,9 @@ enum MapObjectQueryType
   QUERY_MARK_DISTANCE = 1 << 8, /* Measurement lines */
   QUERY_PREVIEW_PROC_POINTS = 1 << 9, /* Points from procedure preview */
   QUERY_PROC_RECOMMENDED = 1 << 10, /* Recommended navaids from procedures */
+  QUERY_ALTERNATE = 1 << 11, /* Alternate airports in flight plan */
+  QUERY_AIRCRAFT_TRAIL = 1 << 12, /* Aircraft trail */
+  QUERY_AIRCRAFT_TRAIL_LOG = 1 << 13, /* Aircraft trail */
 
   /* All user creatable/placeable features */
   QUERY_MARK = QUERY_MARK_DISTANCE | QUERY_MARK_HOLDINGS | QUERY_MARK_PATTERNS | QUERY_MARK_RANGE | QUERY_MARK_MSA,
@@ -351,6 +359,8 @@ enum MapAirspaceFlag
   AIRSPACE_ALL_ON = 1 << 3,
   AIRSPACE_ALL_OFF = 1 << 4,
 
+  AIRSPACE_NO_MULTIPLE_Z = 1 << 5,
+
   AIRSPACE_FLAG_DEFAULT = AIRSPACE_ALTITUDE_ALL
 };
 
@@ -373,6 +383,16 @@ struct MapAirspaceFilter
   MapAirspaceFilter(const MapAirspaceTypes& typesParam, const MapAirspaceFlags& flagsParam, int minAltitudeFtParam, int maxAltitudeFtParam)
     :  types(typesParam), flags(flagsParam), minAltitudeFt(minAltitudeFtParam), maxAltitudeFt(maxAltitudeFtParam)
   {
+  }
+
+  bool operator==(const map::MapAirspaceFilter& other) const
+  {
+    return types == other.types && flags == other.flags && minAltitudeFt == other.minAltitudeFt && maxAltitudeFt == other.maxAltitudeFt;
+  }
+
+  bool operator!=(const map::MapAirspaceFilter& other) const
+  {
+    return !operator==(other);
   }
 
   MapAirspaceTypes types;
@@ -511,20 +531,40 @@ enum TextAttribute
   OVERLINE = 0x0008,
   STRIKEOUT = 0x0010,
 
-  /* Alignment */
-  RIGHT = 0x0020, /* Reference point is at the right of the text (right-aligned) to place text at the left of an icon */
-  LEFT = 0x0040, /* Reference point is at the left of the text (left-aligned) to place text at the right of an icon */
+  /* Text placement */
+  LEFT = 0x0020, /* Reference point is at the right of the text (right-aligned) to place text at the LEFT of an icon */
+  RIGHT = 0x0040, /* Reference point is at the left of the text (left-aligned) to place text at the RIGHT of an icon */
   CENTER = 0x0080,
 
   /* Vertical alignment */
-  VERT_BELOW = 0x1000, /* Reference point at top to place text below an icon */
-  VERT_ABOVE = 0x2000, /* Reference point at bottom to place text on top of an icon */
+  BELOW = 0x1000, /* Reference point at top to place text BELOW an icon */
+  ABOVE = 0x2000, /* Reference point at bottom to place text ABOVE an icon */
 
   /* Color attributes */
   ROUTE_BG_COLOR = 0x0100, /* Use light yellow background for route objects */
   LOG_BG_COLOR = 0x0200, /* Use light blue text background for log */
   WARNING_COLOR = 0x0400, /* Orange warning text */
-  ERROR_COLOR = 0x0800 /* White on red error text */
+  ERROR_COLOR = 0x0800, /* White on red error text */
+
+  NO_ROUND_RECT = 0x4000, /* No rounded background rect */
+
+  /* Automatic text placement to octants for flight plan labels */
+  PLACE_ABOVE = ABOVE | CENTER,
+  PLACE_ABOVE_RIGHT = ABOVE | RIGHT,
+  PLACE_RIGHT = RIGHT,
+  PLACE_BELOW_RIGHT = BELOW | RIGHT,
+  PLACE_BELOW = BELOW | CENTER,
+  PLACE_BELOW_LEFT = BELOW | LEFT,
+  PLACE_LEFT = LEFT,
+  PLACE_ABOVE_LEFT = ABOVE | LEFT,
+
+  /* Horizontal placement flags */
+  PLACE_ALL_HORIZ = LEFT | RIGHT,
+  /* Vertical placement flags */
+  PLACE_ALL_VERT = ABOVE | BELOW,
+
+  /* All placement flags */
+  PLACE_ALL = LEFT | RIGHT | CENTER | BELOW | ABOVE,
 };
 
 Q_DECLARE_FLAGS(TextAttributes, TextAttribute);

@@ -24,7 +24,7 @@
 #include "fs/fspaths.h"
 
 class AircraftPerfController;
-class AircraftTrack;
+class AircraftTrail;
 class AirportQuery;
 class AirwayTrackQuery;
 class WaypointTrackQuery;
@@ -69,7 +69,7 @@ class DataExchange;
 class WeatherContextHandler;
 
 namespace map {
-class MapAirport;
+struct MapAirport;
 }
 namespace atools {
 namespace util {
@@ -155,6 +155,7 @@ public:
 
   /* Needs map widget first */
   static void initElevationProvider();
+  static void showElevationProviderErrors();
 
   /* Deletes all aggregated objects */
   static void deInit();
@@ -204,7 +205,7 @@ public:
 
   static map::MapTypes getShownMapTypes();
   static map::MapDisplayTypes getShownMapDisplayTypes();
-  static map::MapAirspaceFilter getShownMapAirspaces();
+  static const map::MapAirspaceFilter& getShownMapAirspaces();
 
   static AirportQuery *getAirportQuerySim();
   static AirportQuery *getAirportQueryNav();
@@ -227,8 +228,8 @@ public:
   static Route& getRoute();
   static void updateRouteCycleMetadata();
 
-  /* Get a generic route string */
-  static QString getRouteStringDefaultOpts();
+  /* Get a generic route string for logbook entry */
+  static QString getRouteStringLogbook();
   static const atools::geo::Rect& getRouteRect();
 
   static const RouteAltitude& getAltitudeLegs();
@@ -351,11 +352,11 @@ public:
   static QString getOnlineNetworkTranslated();
   static bool isOnlineNetworkActive();
 
-  static bool isAircraftTrackEmpty();
-  static const AircraftTrack& getAircraftTrack();
+  static bool isAircraftTrailEmpty();
+  static const AircraftTrail& getAircraftTrail();
 
-  static const AircraftTrack& getAircraftTrackLogbook();
-  static void deleteAircraftTrackLogbook();
+  static const AircraftTrail& getAircraftTrailLogbook();
+  static void deleteAircraftTrailLogbook();
 
   static void initSplashScreen();
 
@@ -407,6 +408,8 @@ public:
   static QString getCurrentGuiStyleDisplayName();
   static bool isCurrentGuiStyleNight();
 
+  static bool isDarkMapTheme();
+
   static StyleHandler *getStyleHandler();
 
   static map::MapWeatherSource getMapWeatherSource();
@@ -435,6 +438,15 @@ public:
   static QStringList getStartupOptionStrList(const QString& key);
   static void addStartupOptionStr(const QString& key, const QString& value);
   static void addStartupOptionStrList(const QString& key, const QStringList& value);
+  static void clearStartupOptions(); /* Clear for safe mode */
+
+  /* Creates a lock file and shows a warning dialog if this is already present from a former crash.
+   * Sets safe mode if user chooses to skip file loading.
+   * Always creates a crash report in case of previous unsafe exit. */
+  static void recordStartNavApp();
+
+  /* Record files and pack them into a zip for a crash report */
+  static QString buildCrashReportNavAppManual();
 
   /* true if tooltips in menus are visible */
   static bool isMenuToolTipsVisible();
